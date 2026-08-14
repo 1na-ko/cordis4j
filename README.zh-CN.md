@@ -60,6 +60,7 @@ db.dispose();                                       // → dependents 先排空�
 |---|---|---|
 | 可逆效应、LIFO 累积器（§3.1, Alg. 1） | ✅ | `EffectScope`、`Disposable` |
 | 反应式协效应：满足/通知/刷新（§3.2, Alg. 3） | ✅ | `Context.inject` |
+| 注解式注入（§6.4） | ✅ | `@Inject`、`Injects.injectFields` |
 | 撤退排空、provider 卸载顺序（§4.3.1, Th. 63） | ✅ | 卸载时自动执行 |
 | 供给唯一性（§4.2） | ✅ | `SupplyConflictException` |
 | 声明中介 / 能力式访问（Alg. 6） | ✅ | 声明式 fiber 内强制 |
@@ -93,13 +94,14 @@ mvn -pl cordis4j-demo exec:java
 ## 构建与质量门禁
 
 ```console
-mvn verify   # enforcer + spotless + 测试（T1-T23，共 70 个）+ jacoco（>= 85%）+ javadoc + 依赖分析
+mvn verify   # enforcer + spotless + 测试（T1-T24，共 77 个）+ jacoco（>= 85%）+ javadoc + 依赖分析
 ```
 
 ## 路线图
 
-- **P3** - 字节码级热模块替换（自定义 ClassLoader / ModuleLayer 方案评估，参考 OSGi 与 pf4j
-  先例）、注解式注入、生态集成（Spring、Quarkus、LangChain4j）。
+- **P3** - 注入的编译期注解处理（运行时反射形态已落地：`@Inject` / `Injects`）、字节码级热模块
+  替换（自定义 ClassLoader / ModuleLayer 方案评估，参考 OSGi 与 pf4j 先例）、生态集成
+  （Spring、Quarkus、LangChain4j）。
 
 ## 致谢
 
