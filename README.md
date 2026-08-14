@@ -1,15 +1,39 @@
 # Cordis4j
 
+[![CI](https://github.com/1na-ko/cordis4j/actions/workflows/ci.yml/badge.svg)](https://github.com/1na-ko/cordis4j/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![JDK](https://img.shields.io/badge/require-JDK%2021+-blue.svg)](pom.xml)
+
 [中文文档](README.zh-CN.md)
 
 **Cordis4j** is the JVM implementation of the [Cordis](https://github.com/cordiverse/cordis)
-meta-framework of *spatiotemporal composability*: every context mutation carries a tracked
-inverse (temporal), and every dependency is declared and reactively resolved (spatial).
+meta-framework of *spatiotemporal composability* — the kernel beneath
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness):
 
-> Status: v0.1.0 vertical slice. Semantics follow the formal model in
+- **Temporal** — every context mutation carries a tracked inverse; unloading reverts everything
+  in LIFO order (revertible effects).
+- **Spatial** — dependencies are declared and *reactively* resolved: a component activates when
+  its declaration is satisfied, unloads — drained in dependency order — when a provider is
+  withdrawn, and re-activates when the dependency returns (reactive coeffects).
+
+```java
+Context ctx = Contexts.create();
+
+// A reactive component: online only while the database plugin is loaded
+ctx.inject(Database.class, (c, db) -> {
+  c.provide(new Cache(db));                    // reverts automatically on withdrawal
+  return Disposables.of(() -> log("cache offline"));
+});
+
+Disposable db = ctx.plugin(new DatabasePlugin());   // → cache activates
+db.dispose();                                       // → dependents drain first, then the provider
+```
+
+> Status: v0.2.0. Semantics follow the formal model in
 > [A Programming Paradigm for Spatiotemporal Composability](https://github.com/cordiverse/paper)
-> (Sections 3-5); the API is a Java re-imagining, not a line-by-line port of the TypeScript code.
-> See [docs/design-contract.md](docs/design-contract.md) for the frozen contract and decision log.
+> (Sections 3-5, Algorithms 1-6); the API is a Java re-imagining, not a line-by-line port of the
+> TypeScript code. See [docs/design-contract.md](docs/design-contract.md) for the frozen contract
+> and decision log.
 
 ## Requirements
 
@@ -18,35 +42,55 @@ inverse (temporal), and every dependency is declared and reactively resolved (sp
 
 ## Modules
 
-- `cordis4j-core` - zero-dependency core library (JPMS module `io.cordis4j.core`)
-- `cordis4j-demo` - the end-to-end vertical slice demo
+- `cordis4j-core` — zero-dependency core library (JPMS module `io.cordis4j.core`): effects,
+  reactive coeffects, the fiber lifecycle, virtual-thread asynchrony, and the declarative loader.
+- `cordis4j-demo` — end-to-end demos.
 
-## Quickstart
+## Feature map (paper → Cordis4j)
 
-See `cordis4j-demo/src/main/java/io/cordis4j/demo/QuickStart.java` and run:
+| Paper construct | Status | Where |
+|---|---|---|
+| Revertible effects, LIFO accumulator (§3.1, Alg. 1) | ✅ | `EffectScope`, `Disposable` |
+| Reactive coeffects: satisfaction, notify, refresh (§3.2, Alg. 3) | ✅ | `Context.inject` |
+| Withdrawal drain, provider-teardown ordering (§4.3.1, Th. 63) | ✅ | automatic on unload |
+| Supply uniqueness (§4.2) | ✅ | `SupplyConflictException` |
+| Declaration mediation / capability access (Alg. 6) | ✅ | enforced in declarative fibers |
+| Failure routing, no-retry (§4.3.4) | ✅ | recorded, logged, never propagated |
+| Inertia: chained unload of in-flight fibers (§4.3.3) | ✅ | unload waits for landing |
+| Asynchrony on virtual threads + guard/divert (§4.3.2) | ✅ | `pluginAsync`, `spawn`, `currentFiber` |
+| Isolation realms + interception metadata monoid (§5.1.2) | ✅ | `isolate`, `InterceptMetadata` |
+| Declarative loader, id-keyed diff, transactional reload (§5.2.1, Alg. 10) | ✅ | `Loader` |
+| Bytecode-level hot module replacement (§5.2.2) | 🅿 P3 | ClassLoader/ModuleLayer evaluation |
+
+## Quickstart & demos
+
+See `cordis4j-demo/src/main/java/io/cordis4j/demo/`:
+
+- `QuickStart` — fork a session, events, dispose reverts the subtree.
+- `ReactiveCompositionDemo` — a cache that follows its database plugin on- and offline.
+- `MultiTenantDemo` — per-tenant realm isolation (the session-sandbox pattern).
+- `HotReloadDemo` — configuration reconcile with transactional rollback.
+- `AgentHarnessDemo` — everything-is-a-plugin: reactive tools, virtual-thread agent loop,
+  guards, and whole-session teardown in one dispose.
+
+Run one with:
 
 ```console
 mvn install -DskipTests    # install cordis4j-core into the local repository once
-mvn -pl cordis4j-demo exec:java
+mvn -pl cordis4j-demo exec:java -Dexec.mainClass=io.cordis4j.demo.AgentHarnessDemo
 ```
-
-Expected output: `alice: hello, hi`, then the root timer value - and no output for
-`bob`, because disposing the session reverted its plugin and listeners.
 
 ## Build & quality gates
 
 ```console
-mvn verify   # enforcer + spotless + tests (T1-T10) + jacoco (>= 85%) + javadoc + dependency analysis
+mvn verify   # enforcer + spotless + tests (T1-T23, 70 tests) + jacoco (>= 85%) + javadoc + dependency analysis
 ```
 
 ## Roadmap
 
-- **P2** - declarative dependencies (inject) with the full provider-teardown drain ordering of
-  paper Algorithms 3/5, the inertial lifecycle state machine on virtual threads, annotation-based
-  injection, event filters, and configuration-level hot reload.
-- **P3** - bytecode-level hot module replacement (custom ClassLoader / ModuleLayer evaluation,
-  following the OSGi and pf4j precedents), and ecosystem integrations (Spring, Quarkus,
-  LangChain4j).
+- **P3** — bytecode-level hot module replacement (custom ClassLoader / ModuleLayer evaluation,
+  following the OSGi and pf4j precedents), annotation-based injection, and ecosystem
+  integrations (Spring, Quarkus, LangChain4j).
 
 ## Contributing
 
