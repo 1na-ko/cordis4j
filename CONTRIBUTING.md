@@ -43,6 +43,10 @@ Run `mvn spotless:apply` before committing Java changes.
   `docs/design/` with an archive note; archived documents are exempt from translation.
 - Third-party documents are cited by link, never vendored into the repository.
 
+## Code of Conduct
+
+This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## License
 
 MIT. See [LICENSE](LICENSE). By contributing you agree to license your work under MIT.
