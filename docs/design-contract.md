@@ -39,10 +39,12 @@ of the paper's Sections 3-5):
 Bytecode-level hot module replacement has landed as a separate module (cordis4j-hmr, stage 1 of
 docs/design/hmr-evaluation.md: a zero-dependency custom ClassLoader engine with jar-granular
 module classification and transactional reload), leaving out of scope: the ModuleLayer variant
-(stage 2) and file-granular import-graph classification, and the remaining ecosystem integration
-(Quarkus). Compile-time annotation processing for injection has landed as a separate module
-(cordis4j-inject-processor, T28); the LangChain4j tool bridge and the Spring integration landed
-as separate modules (cordis4j-langchain4j, cordis4j-spring) and live outside this core contract.
+(stage 2) and file-granular import-graph classification. The Quarkus integration is evaluated
+and deferred (docs/design/quarkus-evaluation.md recommends a plain CDI module when a concrete
+deployment needs it). Compile-time annotation processing for injection has landed as a separate
+module (cordis4j-inject-processor, T28); the LangChain4j tool bridge and the Spring integration
+landed as separate modules (cordis4j-langchain4j, cordis4j-spring) and live outside this core
+contract.
 
 ---
 
@@ -342,7 +344,7 @@ by the module).
   (public top-level class, non-static/final/primitive/private fields, named package) and emits a
   zero-reflection injector per class through the {@code Injects.FieldTarget} accessor shape (T28).
 - Remaining: the ModuleLayer HMR variant (stage 2) with file-granular import-graph classification,
-  and the Quarkus integration.
+  and the Quarkus integration (evaluated and deferred, docs/design/quarkus-evaluation.md).
 
 ---
 

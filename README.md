@@ -120,9 +120,10 @@ mvn verify   # enforcer + spotless + tests (T1-T28, 106 tests) + jacoco (>= 85%)
 ## Roadmap
 
 - **P3** — the ModuleLayer HMR variant (stage 2 of `docs/design/hmr-evaluation.md`; stage 1, the
-  zero-dependency ClassLoader engine, has landed as `cordis4j-hmr`) and the Quarkus integration.
-  The other P3 items have landed: annotation injection (runtime `@Inject`/`Injects` and
-  compile-time `cordis4j-inject-processor`), LangChain4j (`cordis4j-langchain4j`), and Spring
+  zero-dependency ClassLoader engine, has landed as `cordis4j-hmr`) and the Quarkus integration
+  (evaluated and deferred in `docs/design/quarkus-evaluation.md`). The other P3 items have landed:
+  annotation injection (runtime `@Inject`/`Injects` and compile-time
+  `cordis4j-inject-processor`), LangChain4j (`cordis4j-langchain4j`), and Spring
   (`cordis4j-spring`).
 
 ## Contributing

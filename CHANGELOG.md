@@ -47,6 +47,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fields) and emits a zero-reflection injector per class through the new `Injects.FieldTarget`
   accessor shape (core) - no reflection and no `opens` at runtime, at the cost of field
   visibility (T28).
+- `docs/design/quarkus-evaluation.md` (+ zh-CN): the Quarkus integration evaluation - plain CDI
+  producers, a CDI portable extension, and a full Quarkus extension compared; recommends a plain
+  CDI module mirroring cordis4j-spring when a concrete deployment needs it, deferred for now.
 
 ### Fixed
 

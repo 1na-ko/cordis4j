@@ -113,8 +113,9 @@ mvn verify   # enforcer + spotless + 测试（T1-T28，共 106 个）+ jacoco（
 ## 路线图
 
 - **P3** - ModuleLayer HMR 变体（`docs/design/hmr-evaluation.md` 的阶段 2；阶段 1 零依赖
-  ClassLoader 引擎已落地为 `cordis4j-hmr`）与 Quarkus 生态集成。其余 P3 项已落地：注解注入
-  （运行时 `@Inject`/`Injects` 与编译期 `cordis4j-inject-processor`）、LangChain4j
+  ClassLoader 引擎已落地为 `cordis4j-hmr`）与 Quarkus 生态集成（已评估并推迟，
+  `docs/design/quarkus-evaluation.md`）。其余 P3 项已落地：注解注入（运行时
+  `@Inject`/`Injects` 与编译期 `cordis4j-inject-processor`）、LangChain4j
   （`cordis4j-langchain4j`）、Spring（`cordis4j-spring`）。
 
 ## 致谢
