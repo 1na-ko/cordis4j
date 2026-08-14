@@ -31,6 +31,7 @@
     <module>cordis4j-core</module>
     <module>cordis4j-demo</module>
     <module>cordis4j-langchain4j</module>
+    <module>cordis4j-hmr</module>
   </modules>
 
   <properties>

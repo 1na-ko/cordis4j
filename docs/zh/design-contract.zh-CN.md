@@ -28,10 +28,11 @@
 
 ### 1.2 范围外（P3）
 
-字节码级热模块替换（§5.2.2；pf4j / OSGi / ModuleLayer 方案评估已记录于
-docs/design/hmr-evaluation.md，推荐以零依赖自定义 ClassLoader 引擎作为第一阶段实现）、
-注入的编译期注解处理（运行时反射形态已落地为 D21）、其余生态集成（Spring、Quarkus）。
-LangChain4j 工具桥接已落地为独立模块（cordis4j-langchain4j），处于本核心契约之外。
+字节码级热模块替换已落地为独立模块（cordis4j-hmr，docs/design/hmr-evaluation.md 的阶段 1：
+零依赖自定义 ClassLoader 引擎，jar 粒度模块分类与事务性重载）；范围外剩余：ModuleLayer 变体
+（阶段 2）与文件粒度 import 图分类、注入的编译期注解处理（运行时反射形态已落地为 D21）、
+其余生态集成（Spring、Quarkus）。LangChain4j 工具桥接已落地为独立模块
+（cordis4j-langchain4j），处于本核心契约之外。
 
 ---
 
@@ -267,15 +268,15 @@ LangChain4j 工具桥接已落地为独立模块（cordis4j-langchain4j），处
 - 语义化版本：0.x 期间允许破坏性变更，但每次必须更新本契约、决策日志与 CHANGELOG。
 - 跨 P3 的稳定锚点：ServiceKey 形态、Disposable/EffectScope 契约、异常体系、fork 级联语义、
   排空顺序（D20）。
-- P3 入口：字节码级 HMR（自定义 ClassLoader / ModuleLayer 评估，参考 OSGi 与 pf4j 先例）、
-  注入的编译期注解处理、生态集成（Spring、Quarkus、LangChain4j）。
+- P3 入口：注入的编译期注解处理、ModuleLayer HMR 变体（阶段 2）与文件粒度 import 图分类、
+  生态集成（Spring、Quarkus）。
 - v2.1 已落地：运行时反射注解式注入——`Injects.injectFields` 将 `@Inject` 字段装配为一个
   反应式声明（D21、T24）。
 - 生态（模块级，处于本核心契约之外；不追加决策条目）：cordis4j-langchain4j 将会话上下文的
   `CordisTool` 服务暴露为遵循反应式协效应生命周期的 LangChain4j 工具（T25）。
-- HMR 评估（路线图 c，先文档）：docs/design/hmr-evaluation.md 对照论文 §5.2.2 比较 pf4j、
-  OSGi 与 ModuleLayer，推荐零依赖自定义 ClassLoader 引擎为阶段 1、ModuleLayer 为可选阶段 2，
-  并否决 OSGi/pf4j。
+- HMR（路线图 c，模块级，处于本核心契约之外；不追加决策条目）：评估
+  （docs/design/hmr-evaluation.md）与阶段 1 引擎（cordis4j-hmr）——零依赖自定义 ClassLoader
+  引擎，jar 粒度模块分类、加载器 close-and-collect 回收、基于核心 Loader 的事务性重载（T26）。
 
 ---
 

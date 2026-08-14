@@ -6,7 +6,6 @@ package io.cordis4j.core.internal;
 
 import io.cordis4j.core.CyclicDependencyException;
 import io.cordis4j.core.Disposable;
-import io.cordis4j.core.Disposables;
 import io.cordis4j.core.Logger;
 import io.cordis4j.core.ServiceKey;
 import java.util.ArrayDeque;
@@ -260,15 +259,43 @@ final class FiberRegistry {
   /**
    * Returns the user-facing handle of a fiber: disposing it retires the fiber (it will not activate
    * again) and unloads it (Algorithm 4's parent effect carrying the child unload).
+   *
+   * <p>Once disposed, the handle drops its fiber reference, so a retired fiber - and with it the
+   * plugin instance and, in a bytecode-level reload, its class loader - becomes collectable even
+   * while the ambient scope that tracked the handle still lives (reference discipline; the disposal
+   * behavior itself is unchanged and idempotent).
    */
   Disposable handle(Fiber fiber) {
-    return Disposables.of(
-        () -> {
-          synchronized (lock) {
-            fiber.retired = true;
-          }
-          unload(fiber);
-        });
+    return new FiberHandleDisposable(this, fiber);
+  }
+
+  /**
+   * A fiber handle whose fiber reference is released on dispose. A static class, not an anonymous
+   * one: anonymous classes capture constructor parameters into synthetic final fields, which would
+   * pin the fiber forever when an ambient scope tracks the handle.
+   */
+  private static final class FiberHandleDisposable implements Disposable {
+
+    private final FiberRegistry registry;
+    private Fiber target;
+
+    FiberHandleDisposable(FiberRegistry registry, Fiber target) {
+      this.registry = registry;
+      this.target = target;
+    }
+
+    @Override
+    public void dispose() {
+      Fiber fiberToRetire = target;
+      if (fiberToRetire == null) {
+        return;
+      }
+      synchronized (registry.lock) {
+        fiberToRetire.retired = true;
+      }
+      registry.unload(fiberToRetire);
+      target = null;
+    }
   }
 
   /** Records a key supplied by a fiber (for declaration checks); part of the provide protocol. */
