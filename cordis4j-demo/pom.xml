@@ -7,7 +7,7 @@
   <parent>
     <groupId>io.cordis4j</groupId>
     <artifactId>cordis4j-parent</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>${revision}</version>
   </parent>
 
   <artifactId>cordis4j-demo</artifactId>
@@ -18,7 +18,7 @@
     <dependency>
       <groupId>io.cordis4j</groupId>
       <artifactId>cordis4j-core</artifactId>
-      <version>${project.version}</version>
+      <version>${revision}</version>
     </dependency>
   </dependencies>
 
