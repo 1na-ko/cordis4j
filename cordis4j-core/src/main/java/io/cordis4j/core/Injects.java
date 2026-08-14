@@ -17,7 +17,9 @@ import java.util.function.Function;
 
 /**
  * Assembles {@link Inject}-annotated fields into a reactive-coeffect declaration (paper, Section
- * 6.4: absent transparent access interception, runtime reflection mediates dependency access).
+ * 6.4: absent transparent access interception, runtime reflection mediates dependency access;
+ * compile-time generation supplies the same declaration through {@link #injectFields(Context,
+ * List)} with generated zero-reflection accessors).
  *
  * <p>{@link #injectFields(Context, Object)} scans the instance's class hierarchy (up to, but not
  * including, {@code Object}) for annotated fields and declares one fiber through {@link
@@ -36,6 +38,69 @@ import java.util.function.Function;
 public final class Injects {
 
   private Injects() {}
+
+  /**
+   * One injected field of an instance: its service key and the assignment that writes the current
+   * binding into it. The setter receives {@code null} when the declaration unloads, clearing the
+   * field.
+   *
+   * <p>This is the accessor shape of paper Section 6.4: the runtime form implements it with
+   * reflection, and the compile-time processor generates it as direct field assignments.
+   */
+  public interface FieldTarget {
+
+    /**
+     * Returns the service key of the field's dependency.
+     *
+     * @return the key, never null
+     */
+    ServiceKey<?> key();
+
+    /**
+     * Writes a value into the field: the resolved binding on activation, {@code null} on unload.
+     *
+     * @param value the binding to store, or null to clear
+     */
+    void set(Object value);
+  }
+
+  /**
+   * Wires the given field targets to {@code context} as one reactive declaration (decision D21):
+   * the returned fiber activates - setting every field - as soon as all of their keys resolve,
+   * clears them (in reverse order) when a relied binding is withdrawn, and re-activates when the
+   * declaration is satisfied again. The targets must not change while the declaration runs.
+   *
+   * @param context the context declaring the fiber
+   * @param targets the fields to wire, in population order
+   * @return a disposable that retires the declaration and clears the fields
+   * @throws IllegalStateException if {@code context} is disposed
+   * @throws NullPointerException if {@code context}, {@code targets}, or any element is null
+   */
+  public static Disposable injectFields(Context context, List<FieldTarget> targets) {
+    Objects.requireNonNull(context, "context");
+    Objects.requireNonNull(targets, "targets");
+    if (targets.isEmpty()) {
+      return Disposables.none();
+    }
+    Set<ServiceKey<?>> dependencies = new LinkedHashSet<>();
+    for (FieldTarget target : targets) {
+      Objects.requireNonNull(target, "target");
+      dependencies.add(Objects.requireNonNull(target.key(), "target key"));
+    }
+    return context.inject(
+        dependencies,
+        ctx -> {
+          for (FieldTarget target : targets) {
+            target.set(ctx.get(target.key()));
+          }
+          return Disposables.of(
+              () -> {
+                for (int i = targets.size() - 1; i >= 0; i--) {
+                  targets.get(i).set(null);
+                }
+              });
+        });
+  }
 
   /**
    * Wires the {@link Inject}-annotated fields of {@code instance} to {@code context} as one
@@ -78,28 +143,28 @@ public final class Injects {
     if (declaredByClass.isEmpty()) {
       return Disposables.none();
     }
-    List<Map.Entry<ServiceKey<?>, Field>> targets = new ArrayList<>();
-    Set<ServiceKey<?>> dependencies = new LinkedHashSet<>();
+    List<FieldTarget> targets = new ArrayList<>();
     for (List<Field> annotated : declaredByClass.values()) {
       for (Field field : annotated) {
         ServiceKey<?> key = ServiceKey.of(field.getType(), qualifierOf(field));
-        targets.add(Map.entry(key, field));
-        dependencies.add(key);
+        targets.add(new ReflectiveTarget(key, field, instance));
       }
     }
-    return context.inject(
-        dependencies,
-        ctx -> {
-          for (Map.Entry<ServiceKey<?>, Field> target : targets) {
-            set(target.getValue(), instance, ctx.get(target.getKey()));
-          }
-          return Disposables.of(
-              () -> {
-                for (int i = targets.size() - 1; i >= 0; i--) {
-                  set(targets.get(i).getValue(), instance, null);
-                }
-              });
-        });
+    return injectFields(context, targets);
+  }
+
+  /** A {@link FieldTarget} that writes through reflection. */
+  private record ReflectiveTarget(ServiceKey<?> key, Field field, Object instance)
+      implements FieldTarget {
+
+    @Override
+    public void set(Object value) {
+      try {
+        field.set(instance, value);
+      } catch (IllegalAccessException e) {
+        throw new IllegalStateException("inaccessible @Inject field: " + field, e);
+      }
+    }
   }
 
   private static void requireInjectable(Field field) {
@@ -117,13 +182,5 @@ public final class Injects {
 
   private static String qualifierOf(Field field) {
     return field.getAnnotation(Inject.class).qualifier();
-  }
-
-  private static void set(Field field, Object instance, Object value) {
-    try {
-      field.set(instance, value);
-    } catch (IllegalAccessException e) {
-      throw new IllegalStateException("inaccessible @Inject field: " + field, e);
-    }
   }
 }

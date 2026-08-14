@@ -59,6 +59,8 @@ db.dispose();                                       // → dependents 先排空�
   换 fiber，被替换的代码可被回收。
 - `cordis4j-spring` - Spring 集成：Context bean 与 @CordisService bean，其绑定跟随容器
   生命周期（仅依赖 spring-beans；核心零改动）。
+- `cordis4j-inject-processor` - 注解注入的编译期生成：编译期校验 @Inject 字段并为每个类
+  生成免反射 injector。
 
 ## 论文概念覆盖度（→ Cordis4j）
 
@@ -66,7 +68,7 @@ db.dispose();                                       // → dependents 先排空�
 |---|---|---|
 | 可逆效应、LIFO 累积器（§3.1, Alg. 1） | ✅ | `EffectScope`、`Disposable` |
 | 反应式协效应：满足/通知/刷新（§3.2, Alg. 3） | ✅ | `Context.inject` |
-| 注解式注入（§6.4） | ✅ | `@Inject`、`Injects.injectFields` |
+| 注解式注入（§6.4） | ✅ | `@Inject`、`Injects.injectFields`；编译期生成见 `cordis4j-inject-processor` |
 | 撤退排空、provider 卸载顺序（§4.3.1, Th. 63） | ✅ | 卸载时自动执行 |
 | 供给唯一性（§4.2） | ✅ | `SupplyConflictException` |
 | 声明中介 / 能力式访问（Alg. 6） | ✅ | 声明式 fiber 内强制 |
@@ -105,15 +107,15 @@ mvn -pl cordis4j-demo exec:java
 ## 构建与质量门禁
 
 ```console
-mvn verify   # enforcer + spotless + 测试（T1-T27，共 100 个）+ jacoco（>= 85%）+ javadoc + 依赖分析
+mvn verify   # enforcer + spotless + 测试（T1-T28，共 106 个）+ jacoco（>= 85%）+ javadoc + 依赖分析
 ```
 
 ## 路线图
 
-- **P3** - 注入的编译期注解处理（运行时反射形态已落地：`@Inject` / `Injects`）、ModuleLayer HMR
-  变体（`docs/design/hmr-evaluation.md` 的阶段 2；阶段 1 零依赖 ClassLoader 引擎已落地为
-  `cordis4j-hmr`）、Quarkus 生态集成。LangChain4j 与 Spring 集成已落地为独立模块
-  （`cordis4j-langchain4j`、`cordis4j-spring`）。
+- **P3** - ModuleLayer HMR 变体（`docs/design/hmr-evaluation.md` 的阶段 2；阶段 1 零依赖
+  ClassLoader 引擎已落地为 `cordis4j-hmr`）与 Quarkus 生态集成。其余 P3 项已落地：注解注入
+  （运行时 `@Inject`/`Injects` 与编译期 `cordis4j-inject-processor`）、LangChain4j
+  （`cordis4j-langchain4j`）、Spring（`cordis4j-spring`）。
 
 ## 致谢
 
