@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-14
+
+Full coverage of the paper's core-library semantics (Sections 3-5, Algorithms 1-6): reactive
+coeffects, the withdrawal drain, the fiber lifecycle with inertia, virtual-thread asynchrony,
+and the declarative loader. Design contract bumped to v2.0 (decisions D11-D20).
+
+### Added
+
+- Reactive coeffects (paper Algorithm 3): `Context.inject` (4 overloads) declares a fiber that
+  activates when every dependency resolves, unloads reactively when a relied binding is
+  withdrawn, and re-activates when the dependency returns; the callback's returned Disposable
+  joins the fiber domain (T11).
+- Withdrawal drain (paper Algorithm 5, Theorem 63): unloading a provider withdraws its supplies
+  first - every dependent, including one still activating (the chained unload of inertia),
+  unloads before any of the provider's own effects revert, and each dependent's teardown still
+  resolves the withdrawn binding (T12, D20).
+- Supply uniqueness (paper Section 4.2): `SupplyConflictException` when two distinct active
+  fibers supply one store key; ambient provides keep administrator-overwrite semantics (T13).
+- Declaration mediation (paper Algorithm 6): declarative fibers resolve only their declared keys
+  and own supplies - `InactiveAccessException` otherwise; plain plugins stay unrestricted (T14).
+- Failure routing (paper Section 4.3.4): failed activations revert the partial domain, are
+  recorded and logged, never propagate to siblings or triggers, and never retry (T15).
+- Asynchrony (paper Sections 4.3.2-4.3.3): `pluginAsync` runs effect functions on virtual
+  threads and waits for landing (inertia); `spawn` runs long tasks whose handles interrupt and
+  join them (starting a task is a revertible effect); `currentFiber()` exposes the guard with
+  `isDiverted`/`checkDiverted` (DivertedException); spawned tasks inherit their spawner's fiber
+  (T19, T20).
+- Events: supertype dispatch (isInstance) and per-listener filters; strict registration order
+  within one context (T17).
+- Interception metadata monoid (paper Section 5.1.2): `InterceptMetadata` merges along the chain
+  root-to-lookup, nearer-wins; mixed kinds keep nearest-wins (T18).
+- Declarative loader (paper Section 5.2.1 / Algorithm 10, configuration level): `LoaderConfig`
+  and `ComponentEntry` with id-keyed diff, instance identity as the version, transactional
+  reconcile with rollback to the previous set, and reverse-order disposal (T21).
+
+### Fixed
+
+- Same-instance duplicate provide no longer breaks overwrite semantics: removal disposables
+  carry a registration token (T23).
+- Service lookups fail fast on key/type mismatches (ClassCastException at provide time).
+- Context-tree concurrency: registry state is internally locked with a one-direction lock order;
+  user code (effect functions, teardowns, service hooks) runs outside the monitors; concurrent
+  provide/get smoke-tested (T22).
+
+### Changed
+
+- Design contract v2.0: decision log D11-D20, updated deviations, boundary semantics 13-22,
+  four-state lifecycle model (INACTIVE/LOADING/ACTIVE/UNLOADING) with inertia.
+
 ## [0.1.0] - 2026-08-14
 
 The first vertical slice: the frozen design contract and the zero-dependency core.

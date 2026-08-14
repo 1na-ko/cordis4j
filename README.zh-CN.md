@@ -1,14 +1,36 @@
 # Cordis4j
 
-> 本文档是英文规范本 [README.md](../README.md) 的中文译本；如有出入，以英文版为准。最近同步：2026-08-14。
+[![CI](https://github.com/1na-ko/cordis4j/actions/workflows/ci.yml/badge.svg)](https://github.com/1na-ko/cordis4j/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![JDK](https://img.shields.io/badge/require-JDK%2021+-blue.svg)](pom.xml)
 
-**Cordis4j** 是 [Cordis](https://github.com/cordiverse/cordis) 元框架在 JVM 上的实现，实现"时空可组合性"：
-每次上下文变更都携带被跟踪的逆（时间维），每个依赖都被声明并反应式解析（空间维）。
+> 本文档是英文规范本 [README.md](README.md) 的中文译本；如有出入，以英文版为准。最近同步：2026-08-14。
 
-> 状态：v0.1.0 垂直切片。语义遵循论文
+**Cordis4j** 是 [Cordis](https://github.com/cordiverse/cordis) 元框架在 JVM 上的实现，实现"时空可组合性"
+——它正是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 底层内核的语义对应物：
+
+- **时间维**：每次上下文变更都携带被跟踪的逆，卸载时按 LIFO 整体恢复（可逆效应）。
+- **空间维**：依赖被声明并**反应式**解析——组件在声明满足时激活，供给被撤销时按依赖序排空卸载，
+  依赖回归时重新激活（反应式协效应）。
+
+```java
+Context ctx = Contexts.create();
+
+// 反应式组件：只有数据库插件在场时才上线
+ctx.inject(Database.class, (c, db) -> {
+  c.provide(new Cache(db));                    // 撤销时自动回滚
+  return Disposables.of(() -> log("cache offline"));
+});
+
+Disposable db = ctx.plugin(new DatabasePlugin());   // → cache 激活
+db.dispose();                                       // → dependents 先排空，provider 后撤销
+```
+
+> 状态：v0.2.0。语义遵循论文
 > [A Programming Paradigm for Spatiotemporal Composability](https://github.com/cordiverse/paper)
-> 第 3–5 节的形式化模型；API 是 Java 化的重想（inspired-by），不是对 TypeScript 代码的逐行移植。
-> 冻结契约与决策日志见 [docs/design-contract.md](design-contract.md)。
+> 第 3–5 节（Algorithm 1–6）的形式化模型；API 是 Java 化的重想（inspired-by），不是对
+> TypeScript 代码的逐行移植。冻结契约与决策日志见
+> [docs/design-contract.md](docs/design-contract.md)。
 
 ## 环境要求
 
@@ -17,33 +39,54 @@
 
 ## 模块
 
-- `cordis4j-core` - 零依赖核心库（JPMS 模块 `io.cordis4j.core`）
-- `cordis4j-demo` - 端到端垂直切片演示
+- `cordis4j-core` - 零依赖核心库（JPMS 模块 `io.cordis4j.core`）：效应、反应式协效应、
+  fiber 生命周期、虚拟线程异步、声明式加载器。
+- `cordis4j-demo` - 端到端演示。
 
-## 快速开始
+## 论文概念覆盖度（→ Cordis4j）
 
-参见 `cordis4j-demo/src/main/java/io/cordis4j/demo/QuickStart.java`，然后运行：
+| 论文构造 | 状态 | 对应 API |
+|---|---|---|
+| 可逆效应、LIFO 累积器（§3.1, Alg. 1） | ✅ | `EffectScope`、`Disposable` |
+| 反应式协效应：满足/通知/刷新（§3.2, Alg. 3） | ✅ | `Context.inject` |
+| 撤退排空、provider 卸载顺序（§4.3.1, Th. 63） | ✅ | 卸载时自动执行 |
+| 供给唯一性（§4.2） | ✅ | `SupplyConflictException` |
+| 声明中介 / 能力式访问（Alg. 6） | ✅ | 声明式 fiber 内强制 |
+| 失败路由、永不重试（§4.3.4） | ✅ | 记录 + 日志，不传播 |
+| 惯性：飞行中 fiber 的链式卸载（§4.3.3） | ✅ | 卸载等待落地 |
+| 虚拟线程异步 + guard/divert（§4.3.2） | ✅ | `pluginAsync`、`spawn`、`currentFiber` |
+| 隔离 realm + 拦截元数据幺半群（§5.1.2） | ✅ | `isolate`、`InterceptMetadata` |
+| 声明式加载器、id 键控 diff、事务性重载（§5.2.1, Alg. 10） | ✅ | `Loader` |
+| 字节码级热模块替换（§5.2.2） | 🅿 P3 | ClassLoader/ModuleLayer 评估 |
+
+## 快速开始与演示
+
+参见 `cordis4j-demo/src/main/java/io/cordis4j/demo/`：
+
+- `QuickStart` - fork 会话、事件、dispose 逆序撤销子树。
+- `ReactiveCompositionDemo` - 缓存组件随数据库插件上下线。
+- `MultiTenantDemo` - 租户级 realm 隔离（会话沙箱模式）。
+- `HotReloadDemo` - 配置调和与事务性回滚。
+- `AgentHarnessDemo` - 一切皆插件：反应式工具、虚拟线程 agent loop、guard、
+  一次 dispose 撤销整个会话。
+
+运行示例：
 
 ```console
 mvn install -DskipTests    # 先把 cordis4j-core 安装到本地仓库（只需一次）
-mvn -pl cordis4j-demo exec:java
+mvn -pl cordis4j-demo exec:java -Dexec.mainClass=io.cordis4j.demo.AgentHarnessDemo
 ```
-
-预期输出：`alice: hello, hi`，随后是根级计时器数值——`bob` 不产生任何输出，
-因为会话 dispose 已逆序撤销其插件与监听器。
 
 ## 构建与质量门禁
 
 ```console
-mvn verify   # enforcer + spotless + 测试（T1-T10）+ jacoco（>= 85%）+ javadoc + 依赖分析
+mvn verify   # enforcer + spotless + 测试（T1-T23，共 70 个）+ jacoco（>= 85%）+ javadoc + 依赖分析
 ```
 
 ## 路线图
 
-- **P2** - 声明式依赖（inject）+ 论文 Algorithm 3/5 的完整"provider 卸载前排空 dependents"顺序、
-  基于虚拟线程的惯性生命周期状态机、注解注入、事件过滤器、配置级热重载。
-- **P3** - 字节码级热模块替换（自定义 ClassLoader / ModuleLayer 方案评估，参考 OSGi 与 pf4j 先例），
-  以及生态集成（Spring、Quarkus、LangChain4j）。
+- **P3** - 字节码级热模块替换（自定义 ClassLoader / ModuleLayer 方案评估，参考 OSGi 与 pf4j
+  先例）、注解式注入、生态集成（Spring、Quarkus、LangChain4j）。
 
 ## 致谢
 
