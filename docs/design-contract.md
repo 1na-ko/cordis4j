@@ -40,9 +40,9 @@ Bytecode-level hot module replacement has landed as a separate module (cordis4j-
 docs/design/hmr-evaluation.md: a zero-dependency custom ClassLoader engine with jar-granular
 module classification and transactional reload), leaving out of scope: the ModuleLayer variant
 (stage 2) and file-granular import-graph classification, compile-time annotation processing for
-injection (the runtime-reflection form landed as D21), and the remaining ecosystem integrations
-(Spring, Quarkus). The LangChain4j tool bridge landed as a separate module (cordis4j-langchain4j)
-and lives outside this core contract.
+injection (the runtime-reflection form landed as D21), and the remaining ecosystem integration
+(Quarkus). The LangChain4j tool bridge and the Spring integration landed as separate modules
+(cordis4j-langchain4j, cordis4j-spring) and live outside this core contract.
 
 ---
 
@@ -325,13 +325,14 @@ by the module).
   `Injects.injectFields` into one reactive declaration (D21, T24).
 - Ecosystem (module-level, outside this core contract; no decision-log entry): cordis4j-langchain4j
   exposes `CordisTool` services of a session context as LangChain4j tools that follow the
-  reactive-coeffect lifecycle (T25).
+  reactive-coeffect lifecycle (T25); cordis4j-spring provides a Context bean and @CordisService
+  beans that follow bean lifecycles (T27).
 - HMR (roadmap c, module-level, outside this core contract; no decision-log entry): the evaluation
   (docs/design/hmr-evaluation.md) and the stage-1 engine (cordis4j-hmr) - a zero-dependency
   custom ClassLoader engine with jar-granular module classification, loader close-and-collect
   retraction, and transactional reload over the core Loader (T26).
 - Remaining: compile-time annotation processing for injection, the ModuleLayer HMR variant
-  (stage 2) with file-granular import-graph classification, and the Spring/Quarkus integrations.
+  (stage 2) with file-granular import-graph classification, and the Quarkus integration.
 
 ---
 

@@ -64,6 +64,8 @@ disappear, or are replaced.
   with their plugins (langchain4j-core only; no model provider, runs offline).
 - `cordis4j-hmr` — bytecode-level hot module replacement: loads plugin jars into per-plugin class
   loaders, swaps fibers transactionally on reload, and collects the replaced code.
+- `cordis4j-spring` — Spring integration: a Context bean and @CordisService beans whose bindings
+  follow the container's lifecycle (spring-beans only; zero code changes to the core).
 
 ## Feature map (paper → Cordis4j)
 
@@ -82,6 +84,7 @@ disappear, or are replaced.
 | Declarative loader, id-keyed diff, transactional reload (§5.2.1, Alg. 10) | ✅ | `Loader` |
 | Bytecode-level hot module replacement (§5.2.2) | ✅ | `HotReloadingLoader` in `cordis4j-hmr` |
 | LangChain4j tool bridge (ecosystem) | ✅ | `CordisToolRegistry` in `cordis4j-langchain4j` |
+| Spring integration (ecosystem) | ✅ | `ContextFactoryBean` in `cordis4j-spring` |
 
 ## Quickstart & demos
 
@@ -109,7 +112,7 @@ mid-conversation); run it with `mvn -pl cordis4j-langchain4j exec:java`.
 ## Build & quality gates
 
 ```console
-mvn verify   # enforcer + spotless + tests (T1-T26, 97 tests) + jacoco (>= 85%) + javadoc + dependency analysis
+mvn verify   # enforcer + spotless + tests (T1-T27, 100 tests) + jacoco (>= 85%) + javadoc + dependency analysis
 ```
 
 ## Roadmap
@@ -117,8 +120,8 @@ mvn verify   # enforcer + spotless + tests (T1-T26, 97 tests) + jacoco (>= 85%) 
 - **P3** — compile-time annotation processing for injection (the runtime-reflection form has
   landed: `@Inject` / `Injects`), the ModuleLayer HMR variant (stage 2 of
   `docs/design/hmr-evaluation.md`; stage 1, the zero-dependency ClassLoader engine, has landed as
-  `cordis4j-hmr`), and the remaining ecosystem integrations (Spring, Quarkus). The LangChain4j
-  integration has landed as the separate module `cordis4j-langchain4j`.
+  `cordis4j-hmr`), and the Quarkus integration. The LangChain4j and Spring integrations have
+  landed as separate modules (`cordis4j-langchain4j`, `cordis4j-spring`).
 
 ## Contributing
 

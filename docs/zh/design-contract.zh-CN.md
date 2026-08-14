@@ -31,8 +31,8 @@
 字节码级热模块替换已落地为独立模块（cordis4j-hmr，docs/design/hmr-evaluation.md 的阶段 1：
 零依赖自定义 ClassLoader 引擎，jar 粒度模块分类与事务性重载）；范围外剩余：ModuleLayer 变体
 （阶段 2）与文件粒度 import 图分类、注入的编译期注解处理（运行时反射形态已落地为 D21）、
-其余生态集成（Spring、Quarkus）。LangChain4j 工具桥接已落地为独立模块
-（cordis4j-langchain4j），处于本核心契约之外。
+其余生态集成（Quarkus）。LangChain4j 工具桥接与 Spring 集成已落地为独立模块
+（cordis4j-langchain4j、cordis4j-spring），处于本核心契约之外。
 
 ---
 
@@ -269,11 +269,12 @@
 - 跨 P3 的稳定锚点：ServiceKey 形态、Disposable/EffectScope 契约、异常体系、fork 级联语义、
   排空顺序（D20）。
 - P3 入口：注入的编译期注解处理、ModuleLayer HMR 变体（阶段 2）与文件粒度 import 图分类、
-  生态集成（Spring、Quarkus）。
+  Quarkus 生态集成。
 - v2.1 已落地：运行时反射注解式注入——`Injects.injectFields` 将 `@Inject` 字段装配为一个
   反应式声明（D21、T24）。
 - 生态（模块级，处于本核心契约之外；不追加决策条目）：cordis4j-langchain4j 将会话上下文的
-  `CordisTool` 服务暴露为遵循反应式协效应生命周期的 LangChain4j 工具（T25）。
+  `CordisTool` 服务暴露为遵循反应式协效应生命周期的 LangChain4j 工具（T25）；cordis4j-spring
+  提供 Context bean 与遵循 bean 生命周期的 @CordisService bean（T27）。
 - HMR（路线图 c，模块级，处于本核心契约之外；不追加决策条目）：评估
   （docs/design/hmr-evaluation.md）与阶段 1 引擎（cordis4j-hmr）——零依赖自定义 ClassLoader
   引擎，jar 粒度模块分类、加载器 close-and-collect 回收、基于核心 Loader 的事务性重载（T26）。

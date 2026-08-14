@@ -32,6 +32,7 @@
     <module>cordis4j-demo</module>
     <module>cordis4j-langchain4j</module>
     <module>cordis4j-hmr</module>
+    <module>cordis4j-spring</module>
   </modules>
 
   <properties>
@@ -43,6 +44,7 @@
     <junit.version>5.14.4</junit.version>
     <langchain4j.version>1.19.0</langchain4j.version>
     <jackson.version>2.22.1</jackson.version>
+    <spring.version>7.0.8</spring.version>
     <maven.compiler.version>3.15.0</maven.compiler.version>
     <maven.surefire.version>3.5.6</maven.surefire.version>
     <maven.enforcer.version>3.6.3</maven.enforcer.version>

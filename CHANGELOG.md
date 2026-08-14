@@ -36,6 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `HotReloadingLoader` bridges the core `Loader`'s transactional reconcile - a reload re-imports
   the jar, swaps the stale entry's fiber, and rolls back on failure, after which the replaced code
   becomes garbage-collectable (T26).
+- `cordis4j-spring` (new module): the Spring integration. `ContextFactoryBean` exposes a cordis4j
+  Context as a Spring bean (created or wrapped) and disposes it on container close;
+  `CordisServiceRegistrar` provides `@CordisService` beans into the container's Context after
+  initialization and withdraws them in reverse provisioning order on shutdown; without a Context
+  bean the integration stays dormant. Main code depends on spring-beans only (T27).
 
 ### Fixed
 
