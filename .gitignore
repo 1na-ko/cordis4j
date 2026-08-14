@@ -12,3 +12,4 @@ target/
 .DS_Store
 .tools/
 .mvn-local/
+.flattened-pom.xml
