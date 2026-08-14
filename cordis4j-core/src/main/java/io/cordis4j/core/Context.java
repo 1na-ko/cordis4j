@@ -1,0 +1,270 @@
+/*
+ * Copyright 2025 the Cordis4j contributors
+ * SPDX-License-Identifier: MIT
+ */
+package io.cordis4j.core;
+
+import java.util.Optional;
+import java.util.function.Consumer;
+
+/**
+ * The unified context of the paradigm (paper, Section 3.3.1): carries the revertible-effect
+ * accumulator and the coeffect tables, and forms a tree through {@link #fork()}.
+ *
+ * <p>Every interaction between a component and its environment passes through the context.
+ * Registrations made through this interface ({@link #provide}, {@link #on}, {@link #plugin}, {@link
+ * #fork}, {@link #isolate}, {@link #intercept}) are tracked as revertible effects of the enclosing
+ * scope and are reverted in LIFO order on {@link #dispose()}.
+ *
+ * <p>P1 semantics are single-threaded (decision D8): a context must not be shared across threads.
+ * All methods reject {@code null} arguments with {@link NullPointerException}, and any method other
+ * than {@link #dispose()} throws {@link IllegalStateException} once the context is disposed.
+ */
+public interface Context extends Disposable {
+
+  // ── Coeffects (paper, Section 5.1.2) ──────────────────────────────────────
+
+  /**
+   * Resolves a service binding, walking this context and its ancestors.
+   *
+   * @param <T> the service type
+   * @param key the service key
+   * @return the bound value, never null
+   * @throws NoSuchServiceException if no binding is found up to the root
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code key} is null
+   */
+  <T> T get(ServiceKey<T> key);
+
+  /**
+   * Resolves a service binding under the default qualifier.
+   *
+   * @param <T> the service type
+   * @param type the service type
+   * @return the bound value, never null
+   * @throws NoSuchServiceException if no binding is found up to the root
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code type} is null
+   */
+  <T> T get(Class<T> type);
+
+  /**
+   * Resolves a service binding without throwing when absent.
+   *
+   * @param <T> the service type
+   * @param key the service key
+   * @return the bound value, or empty when absent
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code key} is null
+   */
+  <T> Optional<T> find(ServiceKey<T> key);
+
+  /**
+   * Resolves a service binding under the default qualifier without throwing when absent.
+   *
+   * @param <T> the service type
+   * @param type the service type
+   * @return the bound value, or empty when absent
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code type} is null
+   */
+  <T> Optional<T> find(Class<T> type);
+
+  /**
+   * Provides a service binding in this context (paper Algorithm 2).
+   *
+   * <p>Providing the same key again overwrites the previous binding: the previous removal
+   * disposable becomes a no-op, and the previous service's {@link Service#stop()} runs immediately
+   * (extension D9). The returned disposable reverts the registration and is itself a tracked effect
+   * of the enclosing scope.
+   *
+   * @param <T> the service type
+   * @param key the service key
+   * @param service the value to bind
+   * @return a disposable that removes the binding; no-op once overwritten or reverted
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code key} or {@code service} is null
+   */
+  <T> Disposable provide(ServiceKey<T> key, T service);
+
+  /**
+   * Provides a service binding keyed by the service's concrete class and the default qualifier.
+   *
+   * @param <T> the service type
+   * @param service the value to bind
+   * @return a disposable that removes the binding
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code service} is null
+   */
+  <T> Disposable provide(T service);
+
+  /**
+   * Derives a child context whose effective realm for {@code type} is {@code realm} (paper, Section
+   * 5.1.2).
+   *
+   * <p>The child inherits everything from this context; only the realm mapping of {@code type} is
+   * redirected, so bindings provided in the child for {@code type} resolve in the child to the
+   * child's own realm and never disturb this context. Disposing the returned context discards the
+   * child and all its bindings. The child is also reverted when the enclosing scope is reverted.
+   *
+   * @param <T> the service type
+   * @param type the service type to isolate
+   * @param realm the realm label for the child subtree
+   * @return the derived child context, which is itself the disposable that discards it
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code type} or {@code realm} is null
+   */
+  <T> Context isolate(Class<T> type, String realm);
+
+  /**
+   * Binds interception metadata for a key in this context (paper, Section 5.1.2, data-structure
+   * part only).
+   *
+   * <p>Experimental in P1: the metadata is stored and queryable through {@link #interceptOf}, but
+   * how providers consume it is hardened in P2.
+   *
+   * @param <T> the service type
+   * @param key the service key
+   * @param metadata the metadata to bind
+   * @return a disposable that removes the metadata; no-op once overwritten or reverted
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code key} or {@code metadata} is null
+   */
+  <T> Disposable intercept(ServiceKey<T> key, Object metadata);
+
+  /**
+   * Returns the interception metadata bound nearest to this context for a key.
+   *
+   * <p>Experimental in P1.
+   *
+   * @param <T> the service type
+   * @param key the service key
+   * @return the metadata, or empty when none is bound
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code key} is null
+   */
+  <T> Optional<Object> interceptOf(ServiceKey<T> key);
+
+  // ── Effects (paper, Section 5.1.1, Algorithm 1) ───────────────────────────
+
+  /**
+   * Opens a self-contained effect scope.
+   *
+   * <p>The canonical use is try-with-resources:
+   *
+   * <pre>
+   * try (var fx = ctx.effect()) {
+   *   fx.track(...);
+   * }
+   * </pre>
+   *
+   * Closing the scope reverts its tracked effects in LIFO order; failures are aggregated into a
+   * {@link DisposeException}. A scope that is never closed leaves its effects untracked.
+   *
+   * @return a new effect scope
+   * @throws IllegalStateException if this context is disposed
+   */
+  EffectScope effect();
+
+  /** A group of tracked effects: the synchronous form of the paper's effect accumulator. */
+  interface EffectScope extends Disposable {
+
+    /**
+     * Registers a disposable so that it is reverted (LIFO) when this scope is disposed.
+     *
+     * @param <D> the disposable type
+     * @param effect the disposable to track
+     * @return {@code effect}, for chaining
+     * @throws IllegalStateException if this scope is already disposed
+     * @throws NullPointerException if {@code effect} is null
+     */
+    <D extends Disposable> D track(D effect);
+  }
+
+  // ── Events (effects that are registrations; decision D3) ─────────────────
+
+  /**
+   * Registers a synchronous listener for an event type.
+   *
+   * <p>The returned disposable reverts the registration and is a tracked effect of the enclosing
+   * scope. Event dispatch is synchronous: {@link #emit} invokes listeners of this context first,
+   * then those of each ancestor up to the root.
+   *
+   * @param <E> the event type
+   * @param type the event type
+   * @param listener the listener
+   * @return a disposable that unregisters the listener
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code type} or {@code listener} is null
+   */
+  <E> Disposable on(Class<E> type, Consumer<E> listener);
+
+  /**
+   * Emits an event synchronously to this context and then to each ancestor up to the root.
+   *
+   * <p>If a listener throws, the exception propagates to the caller and the remaining listeners are
+   * not invoked (decision D3).
+   *
+   * @param <E> the event type
+   * @param event the event to emit
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code event} is null
+   */
+  <E> void emit(E event);
+
+  // ── Space (paper, Section 3.3.1) ─────────────────────────────────────────
+
+  /**
+   * Forks a child context: it resolves this context's services and events, but nothing registered
+   * in the child is visible here.
+   *
+   * <p>The child's disposal is a tracked effect of the enclosing scope, so reverting this context
+   * cascades to the child (paper Algorithm 4).
+   *
+   * @return the child context
+   * @throws IllegalStateException if this context is disposed
+   */
+  Context fork();
+
+  /**
+   * Returns the root context of this context tree.
+   *
+   * @return the root context, never null
+   */
+  Context root();
+
+  // ── Composition entry points (paper Algorithm 4) ─────────────────────────
+
+  /**
+   * Applies a plugin: opens an implicit effect scope, runs {@link Plugin#apply(Context)}, and
+   * tracks the resulting domain as an effect of the enclosing scope.
+   *
+   * <p>Disposing the returned disposable reverts every registration the plugin made, in LIFO order.
+   *
+   * @param plugin the plugin to apply
+   * @return a disposable that unloads the plugin
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code plugin} is null
+   */
+  Disposable plugin(Plugin plugin);
+
+  /**
+   * Applies a convenience plugin that only provides the given services, each keyed by its concrete
+   * class and the default qualifier.
+   *
+   * @param services the services to provide
+   * @return a disposable that unloads the plugin
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code services} or any element is null
+   */
+  Disposable plugin(Object... services);
+
+  /**
+   * Returns a named logger (aligned with the upstream built-in logger service).
+   *
+   * @param name the logger name
+   * @return a logger for {@code name}
+   * @throws NullPointerException if {@code name} is null
+   */
+  Logger logger(String name);
+}
