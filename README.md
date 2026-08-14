@@ -113,9 +113,10 @@ mvn verify   # enforcer + spotless + tests (T1-T25, 85 tests) + jacoco (>= 85%) 
 ## Roadmap
 
 - **P3** — compile-time annotation processing for injection (the runtime-reflection form has
-  landed: `@Inject` / `Injects`), bytecode-level hot module replacement (custom ClassLoader /
-  ModuleLayer evaluation, following the OSGi and pf4j precedents), and the remaining ecosystem
-  integrations (Spring, Quarkus). The LangChain4j integration has landed as the separate module
+  landed: `@Inject` / `Injects`), bytecode-level hot module replacement (the pf4j / OSGi /
+  ModuleLayer evaluation is recorded in `docs/design/hmr-evaluation.md`; the zero-dependency
+  ClassLoader engine is the next implementation step), and the remaining ecosystem integrations
+  (Spring, Quarkus). The LangChain4j integration has landed as the separate module
   `cordis4j-langchain4j`.
 
 ## Contributing

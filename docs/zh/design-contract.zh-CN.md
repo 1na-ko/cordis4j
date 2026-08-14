@@ -28,7 +28,8 @@
 
 ### 1.2 范围外（P3）
 
-字节码级热模块替换（§5.2.2；自定义 ClassLoader / ModuleLayer 方案评估，参考 OSGi 与 pf4j 先例）、
+字节码级热模块替换（§5.2.2；pf4j / OSGi / ModuleLayer 方案评估已记录于
+docs/design/hmr-evaluation.md，推荐以零依赖自定义 ClassLoader 引擎作为第一阶段实现）、
 注入的编译期注解处理（运行时反射形态已落地为 D21）、其余生态集成（Spring、Quarkus）。
 LangChain4j 工具桥接已落地为独立模块（cordis4j-langchain4j），处于本核心契约之外。
 
@@ -272,6 +273,9 @@ LangChain4j 工具桥接已落地为独立模块（cordis4j-langchain4j），处
   反应式声明（D21、T24）。
 - 生态（模块级，处于本核心契约之外；不追加决策条目）：cordis4j-langchain4j 将会话上下文的
   `CordisTool` 服务暴露为遵循反应式协效应生命周期的 LangChain4j 工具（T25）。
+- HMR 评估（路线图 c，先文档）：docs/design/hmr-evaluation.md 对照论文 §5.2.2 比较 pf4j、
+  OSGi 与 ModuleLayer，推荐零依赖自定义 ClassLoader 引擎为阶段 1、ModuleLayer 为可选阶段 2，
+  并否决 OSGi/pf4j。
 
 ---
 

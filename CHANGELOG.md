@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   routed like a failed activation (D14); listener failures are isolated. `SessionToolDemo` shows
   mid-session tool load/unload/swap, including a tool whose dependency is annotation-injected
   (composing D21). Depends on langchain4j-core only - no model provider, runs offline (T25).
+- `docs/design/hmr-evaluation.md` (+ zh-CN): the bytecode-level HMR evaluation against paper
+  Section 5.2.2 - pf4j (3.15.0), OSGi (Core Release 9), and ModuleLayer compared on introduce/
+  retract/GC-eviction, isolation, and model conflict with the fiber paradigm; recommends a
+  zero-dependency custom ClassLoader engine as stage 1 and ModuleLayer as an optional stage 2,
+  rejects OSGi and pf4j.
 
 ## [0.2.0] - 2026-08-14
 
