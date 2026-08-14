@@ -1,6 +1,7 @@
 # Cordis4j 实施计划（P0–P1：核心语义 + 垂直切片）
 
-> 状态：草拟，待用户核对。本文档只描述计划，不含实现代码。
+> **状态：已归档（2026-08-14）**。本文为过程产物（历史计划草稿）；当前生效的设计真相见 [../design-contract.md](../design-contract.md)，决策与 API 以契约为准。
+> 状态：草拟（已归档）。本文档只描述计划，不含实现代码。
 > 依据：cordis 论文《A Programming Paradigm for Spatiotemporal Composability》（工作区内有中文译本 `cordis-paper/`，下文引用章节号即论文章节号）。
 
 ---

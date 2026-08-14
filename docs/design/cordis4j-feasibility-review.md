@@ -1,6 +1,7 @@
 # Cordis4j 可行性评估报告
 
-> 评估对象：`docs/cordis4j-p0-p1-plan.md`（P0–P1 实施计划草稿）
+> **状态：已归档（2026-08-14）**。本文为过程产物（评估档案）；当前生效的设计真相见 [../design-contract.md](../design-contract.md)，结论已全部并入其中。
+> 评估对象：`cordis4j-p0-p1-plan.md`（P0–P1 实施计划草稿，已归档）
 > 依据：cordis 论文《A Programming Paradigm for Spatiotemporal Composability》（cordiverse/paper）、
 > 上游参考实现 @deepseek-ai/cordis@4.0.1（DSH 内核实际依赖，MIT）、GitHub 生态调研。
 > 结论先行：**核心语义（P0–P1）可行性高，风险可控；代码级热替换是唯一真正难点，方案已正确后置。**
