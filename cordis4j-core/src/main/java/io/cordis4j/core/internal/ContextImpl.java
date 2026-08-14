@@ -4,46 +4,66 @@
  */
 package io.cordis4j.core.internal;
 
+import io.cordis4j.core.AsyncPlugin;
 import io.cordis4j.core.Context;
+import io.cordis4j.core.CordisException;
 import io.cordis4j.core.Disposable;
 import io.cordis4j.core.Disposables;
-import io.cordis4j.core.DisposeException;
+import io.cordis4j.core.FiberHandle;
+import io.cordis4j.core.InactiveAccessException;
 import io.cordis4j.core.Logger;
 import io.cordis4j.core.NoSuchServiceException;
 import io.cordis4j.core.Plugin;
 import io.cordis4j.core.ServiceKey;
-import java.util.ArrayDeque;
-import java.util.Deque;
+import io.cordis4j.core.TriFunction;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Predicate;
 
 /**
  * The single {@link Context} implementation: the unified context of paper Section 3.3.1. Holds the
- * effect accumulator, delegates coeffects to a {@link ServiceRegistry} and events to an {@link
- * EventBus}, and forms the context tree through {@code parent} links.
+ * ambient effect accumulator, delegates coeffects to a {@link ServiceRegistry}, events to an {@link
+ * EventBus}, reactive composition to the tree-wide {@link FiberRegistry}, and forms the context
+ * tree through {@code parent} links.
  */
 public final class ContextImpl implements Context {
 
-  /** Context id source; single-threaded per decision D8. */
-  private static int nextId = 1;
+  /** Context id source. */
+  private static final AtomicInteger nextId = new AtomicInteger(1);
 
   final ContextImpl parent;
-  private final ContextImpl root;
+  final ContextImpl root;
   private final int id;
   private final EventBus events;
   final ServiceRegistry registry;
-  private final Deque<Disposable> effects = new ArrayDeque<>();
-  private EffectScopeImpl activeScope;
-  private boolean disposed;
+  final FiberRegistry fibers;
+
+  /** The accumulator for registrations made outside any fiber or explicit scope. */
+  private final EffectScopeImpl ambient = new EffectScopeImpl();
+
+  private volatile boolean disposed;
+  private volatile ExecutorService executor;
 
   /** Creates a context; {@code parent} is null only for the root. */
   public ContextImpl(ContextImpl parent) {
     this.parent = parent;
     this.root = parent != null ? parent.root : this;
-    this.id = nextId++;
+    this.id = nextId.getAndIncrement();
     this.events = new EventBus(parent != null ? parent.events : null);
     this.registry = new ServiceRegistry(this);
+    this.fibers = parent != null ? parent.fibers : new FiberRegistry(this);
   }
 
   private void checkAlive() {
@@ -52,12 +72,24 @@ public final class ContextImpl implements Context {
     }
   }
 
-  /** Registers an effect into the active scope, or into this context's accumulator. */
+  /** Registers an effect into the fiber domain executing on this thread, or the ambient scope. */
   private void track(Disposable effect) {
-    if (activeScope != null) {
-      activeScope.track(effect);
+    EffectScopeImpl domain = Domains.domain();
+    if (domain != null) {
+      domain.track(effect);
     } else {
-      effects.push(effect);
+      ambient.track(effect);
+    }
+  }
+
+  /** Declaration mediation (paper Algorithm 6): a declarative fiber only sees its own keys. */
+  private void checkAccess(ServiceKey<?> key) {
+    Fiber current = Domains.fiber();
+    if (current != null
+        && current.declarative()
+        && !current.dependencies.contains(key)
+        && !current.providedKeys.contains(key)) {
+      throw new InactiveAccessException(key, "undeclared access");
     }
   }
 
@@ -65,6 +97,7 @@ public final class ContextImpl implements Context {
   public <T> T get(ServiceKey<T> key) {
     checkAlive();
     Objects.requireNonNull(key, "key");
+    checkAccess(key);
     T value = registry.get(key);
     if (value == null) {
       throw new NoSuchServiceException(key, describePath());
@@ -81,6 +114,7 @@ public final class ContextImpl implements Context {
   public <T> Optional<T> find(ServiceKey<T> key) {
     checkAlive();
     Objects.requireNonNull(key, "key");
+    checkAccess(key);
     return Optional.ofNullable(registry.get(key));
   }
 
@@ -141,8 +175,16 @@ public final class ContextImpl implements Context {
 
   @Override
   public <E> Disposable on(Class<E> type, Consumer<E> listener) {
+    return on(type, event -> true, listener);
+  }
+
+  @Override
+  public <E> Disposable on(Class<E> type, Predicate<E> filter, Consumer<E> listener) {
     checkAlive();
-    Disposable registration = events.on(type, listener);
+    Objects.requireNonNull(type, "type");
+    Objects.requireNonNull(filter, "filter");
+    Objects.requireNonNull(listener, "listener");
+    Disposable registration = events.on(type, filter, listener);
     track(registration);
     return registration;
   }
@@ -171,26 +213,103 @@ public final class ContextImpl implements Context {
   public Disposable plugin(Plugin plugin) {
     checkAlive();
     Objects.requireNonNull(plugin, "plugin");
-    EffectScopeImpl domain = new EffectScopeImpl();
-    EffectScopeImpl previous = activeScope;
-    activeScope = domain;
+    Fiber fiber = fibers.register(this, Set.of(), plugin::apply, true);
     try {
-      Disposable extra = plugin.apply(this);
-      if (extra != null) {
-        domain.track(extra);
-      }
+      fibers.activate(fiber);
     } catch (RuntimeException | Error failure) {
-      try {
-        domain.dispose();
-      } catch (DisposeException reversion) {
-        failure.addSuppressed(reversion);
-      }
+      fibers.unregister(fiber);
       throw failure;
-    } finally {
-      activeScope = previous;
     }
-    track(domain);
-    return domain;
+    Disposable handle = fibers.handle(fiber);
+    track(handle);
+    return handle;
+  }
+
+  @Override
+  public Disposable pluginAsync(AsyncPlugin plugin) {
+    checkAlive();
+    Objects.requireNonNull(plugin, "plugin");
+    Fiber fiber = fibers.register(this, Set.of(), plugin::apply, true);
+    Future<?> activation = executor().submit(() -> fibers.activate(fiber));
+    try {
+      activation.get(); // wait for the activation to land (inertia of Section 4.3.3)
+    } catch (ExecutionException executed) {
+      fibers.unregister(fiber);
+      Throwable cause = executed.getCause();
+      if (cause instanceof RuntimeException runtime) {
+        throw runtime;
+      }
+      if (cause instanceof Error error) {
+        throw error;
+      }
+      throw new CordisException("Async plugin activation failed", cause);
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      throw new CordisException("Interrupted while activating an async plugin", interrupted);
+    }
+    Disposable handle = fibers.handle(fiber);
+    track(handle);
+    return handle;
+  }
+
+  @Override
+  public Disposable spawn(Runnable task) {
+    checkAlive();
+    Objects.requireNonNull(task, "task");
+    EffectScopeImpl inheritedDomain = Domains.domain();
+    Fiber inheritedFiber = Domains.fiber();
+    Future<?> future =
+        root.executor()
+            .submit(
+                () -> {
+                  EffectScopeImpl previousDomain = Domains.domain();
+                  Fiber previousFiber = Domains.fiber();
+                  Domains.set(inheritedDomain, inheritedFiber); // the task joins its fiber
+                  try {
+                    task.run();
+                  } finally {
+                    Domains.set(previousDomain, previousFiber);
+                  }
+                });
+    Disposable handle =
+        Disposables.of(
+            () -> {
+              future.cancel(true); // interrupt; the task must land (join below)
+              try {
+                future.get();
+              } catch (CancellationException expected) {
+                // never started: nothing to land
+              } catch (ExecutionException failed) {
+                root.logger("io.cordis4j.core.task")
+                    .warn("Spawned task failed: {}", failed.getCause());
+              } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+              }
+            });
+    track(handle); // the enclosing domain stops the task on unload, LIFO
+    return handle;
+  }
+
+  @Override
+  public Optional<FiberHandle> currentFiber() {
+    Fiber fiber = Domains.fiber();
+    if (fiber == null) {
+      return Optional.empty();
+    }
+    return Optional.of(
+        new FiberHandle() {
+          @Override
+          public boolean isDiverted() {
+            return fibers.diverted(fiber);
+          }
+
+          @Override
+          public void checkDiverted() {
+            if (isDiverted()) {
+              throw new io.cordis4j.core.DivertedException();
+            }
+          }
+        });
   }
 
   @Override
@@ -206,6 +325,57 @@ public final class ContextImpl implements Context {
   }
 
   @Override
+  public Disposable inject(
+      Set<ServiceKey<?>> dependencies, Function<Context, Disposable> onSatisfied) {
+    Objects.requireNonNull(onSatisfied, "onSatisfied");
+    return injectInternal(dependencies, ctx -> onSatisfied.apply(ctx));
+  }
+
+  @Override
+  public <T> Disposable inject(
+      ServiceKey<T> dependency, BiFunction<Context, T, Disposable> onSatisfied) {
+    Objects.requireNonNull(dependency, "dependency");
+    Objects.requireNonNull(onSatisfied, "onSatisfied");
+    return injectInternal(Set.of(dependency), ctx -> onSatisfied.apply(ctx, ctx.get(dependency)));
+  }
+
+  @Override
+  public <T> Disposable inject(
+      Class<T> dependency, BiFunction<Context, T, Disposable> onSatisfied) {
+    Objects.requireNonNull(dependency, "dependency");
+    return inject(ServiceKey.of(dependency), onSatisfied);
+  }
+
+  @Override
+  public <T1, T2> Disposable inject(
+      ServiceKey<T1> first,
+      ServiceKey<T2> second,
+      TriFunction<Context, T1, T2, Disposable> onSatisfied) {
+    Objects.requireNonNull(first, "first");
+    Objects.requireNonNull(second, "second");
+    Objects.requireNonNull(onSatisfied, "onSatisfied");
+    Set<ServiceKey<?>> dependencies = Set.copyOf(new LinkedHashSet<>(Arrays.asList(first, second)));
+    return injectInternal(
+        dependencies, ctx -> onSatisfied.apply(ctx, ctx.get(first), ctx.get(second)));
+  }
+
+  /**
+   * Instantiates a declarative fiber: it activates as soon as every dependency resolves, unloads
+   * reactively when one is withdrawn, and may re-activate if all dependencies resolve again while
+   * it is neither retired nor failed.
+   */
+  private Disposable injectInternal(Set<ServiceKey<?>> dependencies, FiberBody body) {
+    checkAlive();
+    Fiber fiber = fibers.register(this, dependencies, body, false);
+    Disposable handle = fibers.handle(fiber);
+    track(handle);
+    if (!fiber.retired && !fiber.failed && fibers.satisfied(fiber)) {
+      fibers.activate(fiber); // failure is routed to unload and recorded, not propagated
+    }
+    return handle;
+  }
+
+  @Override
   public Logger logger(String name) {
     return Logger.jul(Objects.requireNonNull(name, "name"));
   }
@@ -216,7 +386,24 @@ public final class ContextImpl implements Context {
       return;
     }
     disposed = true;
-    SimpleLifecycle.INSTANCE.revert(effects);
+    ambient.dispose(); // unloads fibers and joins their spawned tasks, LIFO
+    ExecutorService service = executor;
+    if (service != null) {
+      service.close(); // wait for remaining carrier threads to land
+    }
+  }
+
+  private ExecutorService executor() {
+    ExecutorService service = executor;
+    if (service == null) {
+      synchronized (this) {
+        if (executor == null) {
+          executor = Executors.newVirtualThreadPerTaskExecutor();
+        }
+        service = executor;
+      }
+    }
+    return service;
   }
 
   private String describePath() {
