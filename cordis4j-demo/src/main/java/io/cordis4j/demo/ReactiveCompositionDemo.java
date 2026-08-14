@@ -13,10 +13,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 反应式组合演示（对标 Koishi 控制台「禁用插件即原地撤销效应」）：
+ * Reactive composition demo (the Koishi-console pattern: disabling a plugin reverts its effects in
+ * place):
  *
- * <p>缓存组件通过 {@code inject} 声明对数据库的依赖——数据库插件在场时自动上线，被禁用时自动下线 （论文 Algorithm 3/5 的反应式生命周期 + Theorem 63
- * 的排空顺序），无需任何手工编排。
+ * <p>The cache component declares its database dependency via {@code inject}: it comes online while
+ * the database plugin is present and goes offline when that plugin is disabled - the reactive
+ * lifecycle of paper Algorithms 3/5 plus the Theorem 63 drain order - with no manual orchestration.
  */
 public final class ReactiveCompositionDemo {
 
@@ -24,7 +26,7 @@ public final class ReactiveCompositionDemo {
     Context app = Contexts.create();
     List<String> log = new ArrayList<>();
 
-    // 声明式组件：只有数据库在场时才激活（reactive coeffect, paper §3.2.2）
+    // Declarative component: active only while the database is present (paper Section 3.2.2)
     Disposable cache =
         app.inject(
             Database.class,

@@ -17,13 +17,17 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 
 /**
- * Agent Harness 演示（对标 DeepSeek Harness 的「一切皆插件」，发挥 4j 优势）：
+ * Agent Harness demo (the DeepSeek Harness "everything is a plugin" pattern, in Java):
  *
  * <ul>
- *   <li>模型、工具注册表、会话全部是 cordis4j 插件；
- *   <li>工具插件用 {@code inject} 声明依赖（Model 与 ToolRegistry），任一被卸载则工具自动下线， 回来又自动上线（反应式组合）；
- *   <li>Agent loop 跑在虚拟线程上（{@code pluginAsync}），会话结束即被中断落地（可逆任务）；
- *   <li>会话 {@code dispose} 一次性撤销全部副作用（时空可组合性的完整闭环）。
+ *   <li>the model, the tool registry, and the session are all cordis4j plugins;
+ *   <li>tool plugins declare their dependencies ({@code Model} and {@code ToolRegistry}) with
+ *       {@code inject}: when either is unloaded the tool goes offline automatically, and comes back
+ *       online when it returns (reactive composition);
+ *   <li>the agent loop runs on a virtual thread ({@code pluginAsync}); ending the session diverts
+ *       and lands it (a revertible task);
+ *   <li>disposing the session reverts every side effect at once (the full spatiotemporal
+ *       composability loop).
  * </ul>
  */
 public final class AgentHarnessDemo {
@@ -83,7 +87,8 @@ public final class AgentHarnessDemo {
 
     @Override
     public Disposable apply(Context ctx) {
-      // 声明式 fiber 的句柄并入本插件域：卸载插件即退役并卸载 fiber
+      // The declarative fiber's handle joins this plugin domain: unloading the plugin retires
+      // and unloads the fiber
       return ctx.inject(
           ServiceKey.of(Model.class),
           ServiceKey.of(ToolRegistry.class),
@@ -104,7 +109,7 @@ public final class AgentHarnessDemo {
     Context app = Contexts.create();
     app.plugin(new HarnessPlugin());
 
-    // 会话（fork 隔离）：装配工具 + agent loop
+    // Session (fork isolation): assemble the tools plus the agent loop
     Context session = app.fork();
     Disposable calculator = session.plugin(new ToolPlugin("calculator", log));
     session.plugin(new ToolPlugin("web_search", log));
@@ -120,7 +125,7 @@ public final class AgentHarnessDemo {
                         while (!ctx.currentFiber()
                             .map(io.cordis4j.core.FiberHandle::isDiverted)
                             .orElse(true)) {
-                          // 一轮 agent loop：读取当前工具集，交给模型
+                          // one agent-loop round: read the current tool set, hand it to the model
                           ToolRegistry registry = ctx.get(ToolRegistry.class);
                           Model model = ctx.get(Model.class);
                           log.add(model.reply(registry.tools(), "user: 1+1=?"));
@@ -133,10 +138,11 @@ public final class AgentHarnessDemo {
     loopStarted.await();
 
     quietSleep(80); // let one loop iteration observe both tools
-    calculator.dispose(); // 动态卸载工具：注册表反应式更新（tool down）
+    calculator.dispose(); // unload a tool live: the registry updates reactively (tool down)
     quietSleep(80); // next iteration sees only web_search
 
-    session.dispose(); // 会话结束：loop 中断落地、其余工具下线、全部副作用一次性撤销
+    session.dispose(); // session over: the loop is diverted and lands, the remaining tools go
+    // offline, all side effects are reverted at once
     agentLoop.dispose();
 
     log.forEach(System.out::println);

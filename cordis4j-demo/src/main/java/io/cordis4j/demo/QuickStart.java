@@ -11,25 +11,26 @@ import io.cordis4j.core.Disposables;
 import io.cordis4j.core.Plugin;
 
 /**
- * 端到端垂直切片演示（P1 验收）：装配 → fork 会话 → 会话内事件与服务 → dispose 逆序撤销。
+ * The end-to-end vertical-slice demo: assemble, fork a session, use session events and services,
+ * then dispose to revert everything in LIFO order.
  *
- * <p>运行：{@code mvn -pl cordis4j-demo exec:java}
+ * <p>Run: {@code mvn -pl cordis4j-demo exec:java}
  */
 public final class QuickStart {
 
   public static void main(String[] args) {
     Context root = Contexts.create();
-    root.plugin(new TimerPlugin()); // 根级插件：提供 now() 服务
-    Context session = root.fork(); // 会话隔离域
+    root.plugin(new TimerPlugin()); // root plugin: provides the now() service
+    Context session = root.fork(); // isolated session domain
     session.plugin(
-        ctx -> { // 会话级插件：问候逻辑
+        ctx -> { // session plugin: the greeting logic
           ctx.on(Message.class, m -> ctx.emit(new Reply(m.from(), "hello, " + m.text())));
           return Disposables.none();
         });
     session.on(Reply.class, r -> System.out.println(r.from() + ": " + r.text()));
-    session.emit(new Message("alice", "hi")); // → 打印 alice: hello, hi
-    session.dispose(); // 会话内插件/监听全部卸载
-    root.emit(new Message("bob", "hi")); // → 无输出（会话监听已卸载）
+    session.emit(new Message("alice", "hi")); // -> prints alice: hello, hi
+    session.dispose(); // session plugins and listeners are all unloaded
+    root.emit(new Message("bob", "hi")); // -> no output (session listener already unloaded)
     System.out.println("root timer = " + root.get(TimerService.class).now());
   }
 
