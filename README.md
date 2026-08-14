@@ -29,11 +29,26 @@ Disposable db = ctx.plugin(new DatabasePlugin());   // → cache activates
 db.dispose();                                       // → dependents drain first, then the provider
 ```
 
-> Status: v0.2.0. Semantics follow the formal model in
+> Status: v0.2.0 - **incubating**. Semantics follow the formal model in
 > [A Programming Paradigm for Spatiotemporal Composability](https://github.com/cordiverse/paper)
 > (Sections 3-5, Algorithms 1-6); the API is a Java re-imagining, not a line-by-line port of the
 > TypeScript code. See [docs/design-contract.md](docs/design-contract.md) for the frozen contract
 > and decision log.
+
+## What this is (and is not)
+
+**Is** - a zero-dependency, semantics-faithful JVM implementation of the Cordis paper, aimed at
+long-running hosts that must rewire themselves at runtime: unload a live component and its side
+effects are reverted by construction; withdraw a provider and every dependent drains before it,
+in dependency order, and re-activates when it returns. The paradigm is proven in production by
+[Koishi](https://koishi.chat) (4000+ community plugins) and by the
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) kernel.
+
+**Is not** - a Spring competitor. If your components never change after startup, static DI
+(Spring, Guice, Dagger, ...) already covers you, and Cordis4j would merely be a smaller DI
+container. Its value appears exactly where static wiring cannot express the requirement: runtime
+unloading with guaranteed reversion, and reactive re-wiring of dependents when providers appear,
+disappear, or are replaced.
 
 ## Requirements
 
@@ -73,12 +88,14 @@ See `cordis4j-demo/src/main/java/io/cordis4j/demo/`:
 - `AgentHarnessDemo` — everything-is-a-plugin: reactive tools, virtual-thread agent loop,
   guards, and whole-session teardown in one dispose.
 
-Run one with:
+Run the default demo (`QuickStart`) with:
 
 ```console
 mvn install -DskipTests    # install cordis4j-core into the local repository once
-mvn -pl cordis4j-demo exec:java -Dexec.mainClass=io.cordis4j.demo.AgentHarnessDemo
+mvn -pl cordis4j-demo exec:java
 ```
+
+Any of the others with `-Dexec.mainClass=io.cordis4j.demo.<DemoName>`.
 
 ## Build & quality gates
 

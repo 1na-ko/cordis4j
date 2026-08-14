@@ -26,11 +26,22 @@ Disposable db = ctx.plugin(new DatabasePlugin());   // → cache 激活
 db.dispose();                                       // → dependents 先排空，provider 后撤销
 ```
 
-> 状态：v0.2.0。语义遵循论文
+> 状态：v0.2.0（**孵化期**）。语义遵循论文
 > [A Programming Paradigm for Spatiotemporal Composability](https://github.com/cordiverse/paper)
 > 第 3–5 节（Algorithm 1–6）的形式化模型；API 是 Java 化的重想（inspired-by），不是对
 > TypeScript 代码的逐行移植。冻结契约与决策日志见
 > [docs/design-contract.md](docs/design-contract.md)。
+
+## 这是什么（与不是什么）
+
+**是** - Cordis 论文语义的零依赖、忠实 JVM 实现，面向需要在运行时自我重连的长驻宿主：
+卸载一个运行中的组件，其副作用按构造保证被撤销；撤销一个 provider，所有依赖它的组件先按
+依赖序排空卸载，依赖回归时自动重新激活。该范式已在生产中得到验证：[Koishi](https://koishi.chat)
+（4000+ 社区插件）与 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 内核。
+
+**不是** - Spring 的竞争者。如果你的组件启动后从不变化，静态 DI（Spring、Guice、Dagger 等）
+已经覆盖你的需求，Cordis4j 只会是一个更小的 DI 容器。它的价值恰好在静态装配表达不了的场景：
+运行时卸载及其保证性撤销，以及 provider 出现/消失/被替换时依赖方的反应式重连。
 
 ## 环境要求
 
@@ -70,12 +81,14 @@ db.dispose();                                       // → dependents 先排空�
 - `AgentHarnessDemo` - 一切皆插件：反应式工具、虚拟线程 agent loop、guard、
   一次 dispose 撤销整个会话。
 
-运行示例：
+运行默认演示（`QuickStart`）：
 
 ```console
 mvn install -DskipTests    # 先把 cordis4j-core 安装到本地仓库（只需一次）
-mvn -pl cordis4j-demo exec:java -Dexec.mainClass=io.cordis4j.demo.AgentHarnessDemo
+mvn -pl cordis4j-demo exec:java
 ```
+
+运行其他演示：加 `-Dexec.mainClass=io.cordis4j.demo.<DemoName>`。
 
 ## 构建与质量门禁
 
