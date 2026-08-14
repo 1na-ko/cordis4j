@@ -38,7 +38,7 @@
 | D7 | 生命周期 | 两态全同步；内部 Lifecycle 接缝（SimpleLifecycle 实现），P2 换惯性状态机 | 论文 §4.3.3 需异步任务句柄，P2 以虚拟线程重访 |
 | D8 | 线程模型 | P1 单线程，契约明文"未同步" | 先正确后并发 |
 | D9 | Service.start/stop | 显式标注为**扩展**（非论文语义）：活跃插件域内 provide 时 start()，域撤销时 stop() 逆序 | 不冒充论文语义；论文顺序保证由 T6 覆盖 |
-| D10 | 许可证/署名 | MIT；README 致谢 cordiverse/paper、cordiverse/cordis、@deepseek-ai/cordis | 上游全 MIT |
+| D10 | 许可证/署名 | Cordis4j 以 MIT 发布；README 致谢 cordis 论文（cordiverse/paper）与参考实现 cordiverse/cordis、@deepseek-ai/cordis（代码仓库均 MIT）；论文仅引述、不断言其许可 | 上游代码全 MIT，无法律障碍 |
 
 ---
 
@@ -186,5 +186,5 @@
 
 - 论文：A Programming Paradigm for Spatiotemporal Composability，https://github.com/cordiverse/paper
 - 上游：https://github.com/cordiverse/cordis ；@deepseek-ai/cordis@4.0.1（vendored in deepseek-harness）
-- 可行性评估：docs/cordis4j-feasibility-review.md
+- 可行性评估（已归档）：docs/design/cordis4j-feasibility-review.md
 - Koishi 可逆插件设计：https://koishi.chat/zh-CN/cookbook/design/disposable.html

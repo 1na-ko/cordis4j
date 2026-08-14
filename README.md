@@ -21,7 +21,7 @@ inverse (temporal), and every dependency is declared and reactively resolved (sp
 
 ## Quickstart
 
-See `cordis4j-demo/src/main/java/demo/QuickStart.java` and run:
+See `cordis4j-demo/src/main/java/io/cordis4j/demo/QuickStart.java` and run:
 
 ```console
 mvn -pl cordis4j-demo exec:java
@@ -44,6 +44,8 @@ mvn verify   # enforcer + spotless + tests (T1-T10) + jacoco (>= 85%) + javadoc 
 
 ## Credits
 
-Cordis4j's semantics are based on the Cordis paper (cordiverse/paper, MIT) and the reference
+Cordis4j's semantics are based on the Cordis paper
+([github.com/cordiverse/paper](https://github.com/cordiverse/paper)) and the reference
 implementations [cordiverse/cordis](https://github.com/cordiverse/cordis) and
-`@deepseek-ai/cordis` (both MIT). License: MIT.
+`@deepseek-ai/cordis` - both MIT-licensed code. Cordis4j itself is released under the
+[MIT License](LICENSE).

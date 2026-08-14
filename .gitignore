@@ -13,3 +13,4 @@ target/
 .tools/
 .mvn-local/
 .flattened-pom.xml
+cordis-paper/
