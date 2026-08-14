@@ -1,5 +1,7 @@
 # Cordis4j
 
+[中文文档](README.zh-CN.md)
+
 **Cordis4j** is the JVM implementation of the [Cordis](https://github.com/cordiverse/cordis)
 meta-framework of *spatiotemporal composability*: every context mutation carries a tracked
 inverse (temporal), and every dependency is declared and reactively resolved (spatial).
@@ -24,8 +26,12 @@ inverse (temporal), and every dependency is declared and reactively resolved (sp
 See `cordis4j-demo/src/main/java/io/cordis4j/demo/QuickStart.java` and run:
 
 ```console
+mvn install -DskipTests    # install cordis4j-core into the local repository once
 mvn -pl cordis4j-demo exec:java
 ```
+
+Expected output: `alice: hello, hi`, then the root timer value - and no output for
+`bob`, because disposing the session reverted its plugin and listeners.
 
 ## Build & quality gates
 
@@ -41,6 +47,12 @@ mvn verify   # enforcer + spotless + tests (T1-T10) + jacoco (>= 85%) + javadoc 
 - **P3** - bytecode-level hot module replacement (custom ClassLoader / ModuleLayer evaluation,
   following the OSGi and pf4j precedents), and ecosystem integrations (Spring, Quarkus,
   LangChain4j).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow (GitHub Flow), the quality
+gates, and the documentation policy (English is canonical; Chinese translations live in
+`README.zh-CN.md` and `docs/zh/`).
 
 ## Credits
 
