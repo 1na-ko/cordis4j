@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without annotated fields is a no-op (T24). Zero-dependency (JDK reflection only).
 - Design contract v2.1: decision D21 appended, boundary semantics 23, API contract section for
   `Inject`/`Injects`.
+- `cordis4j-langchain4j` (new module): the LangChain4j tool bridge. `CordisToolRegistry` watches
+  declared `CordisTool` service keys through `Context.inject`, so a session's tool set follows the
+  reactive-coeffect lifecycle - a tool appears when its plugin loads, vanishes on hot unload, and
+  is replaced on re-provision; handles execute the current binding; a broken specification is
+  routed like a failed activation (D14); listener failures are isolated. `SessionToolDemo` shows
+  mid-session tool load/unload/swap, including a tool whose dependency is annotation-injected
+  (composing D21). Depends on langchain4j-core only - no model provider, runs offline (T25).
 
 ## [0.2.0] - 2026-08-14
 
