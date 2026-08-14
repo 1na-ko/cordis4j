@@ -16,9 +16,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 配置热重载演示（对标论文 §5.2.2 HMR 的「保存即重应用」，配置级形态）：
+ * Configuration-level hot reload (the "save re-applies" shape of paper Section 5.2.2 HMR, at the
+ * configuration level):
  *
- * <p>声明式配置按 id 键控调和——新增的装载、消失的卸载、换实例的热重载，全程事务性： 任一步失败即回滚到上一份运行配置。
+ * <p>The declarative configuration reconciles by id-keyed diffing - new entries load, vanished
+ * entries unload, changed instances hot-reload - and the whole reconcile is transactional: any
+ * failing step rolls back to the previous running configuration.
  */
 public final class HotReloadDemo {
 
@@ -52,13 +55,13 @@ public final class HotReloadDemo {
             ComponentEntry.of("greet", new FeaturePlugin("greet", log)),
             ComponentEntry.of("search", new FeaturePlugin("search", log))));
 
-    log.add("v2: search 换实现，新增 tools，移除 greet");
+    log.add("v2: search reimplemented, tools added, greet removed");
     loader.reconcile(
         LoaderConfig.of(
             ComponentEntry.of("search", new FeaturePlugin("search-v2", log)),
             ComponentEntry.of("tools", new FeaturePlugin("tools", log))));
 
-    log.add("v3: 失败的配置 → 事务回滚到 v2");
+    log.add("v3: failing config -> transactional rollback to v2");
     try {
       loader.reconcile(
           LoaderConfig.of(

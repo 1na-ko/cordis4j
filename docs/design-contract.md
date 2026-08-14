@@ -51,10 +51,10 @@ ecosystem integrations (Spring, Quarkus, LangChain4j).
 | D3 | Event model | Fully synchronous dispatch; emit runs the current context first, then walks the parent chain (child-to-root); a throwing listener propagates and the remaining listeners are skipped (documented) | Matches upstream; virtual-thread asynchrony in P2 |
 | D4 | Naming | groupId/package io.cordis4j; artifactId cordis4j-core; JPMS module io.cordis4j.core | Verified conflict-free; frozen |
 | D5 | Service keys | ServiceKey<T> = (Class<T> type, String qualifier); the qualifier is a one-dimensional projection of the realm; get(Foo.class) is the default-qualifier sugar | **The most important correction from the feasibility review**: reserves the extension point for paper Section 6.2 multi-provider services and loader realms, avoiding P2 rework |
-| D6 | Exception taxonomy | CordisException (base) -> NoSuchServiceException (with key and lookup path) / InactiveAccessException (thrown by P2 declaration checks) / DisposeException (aggregates cleanup failures) | Aligns with the two access failures of upstream Algorithm 6; T7 fixes the aggregation semantics |
-| D7 | Lifecycle | Two states, fully synchronous; internal Lifecycle seam (SimpleLifecycle implementation), replaced by the inertial state machine in P2 | Paper Section 4.3.3 needs asynchronous task handles; revisited with virtual threads in P2 |
-| D8 | Threading | P1 is single-threaded; the contract states "not synchronized" | Correct first, concurrent later |
-| D9 | Service.start/stop | Marked explicitly as an **extension** (not paper semantics): start() on provide within an active plugin domain; stop() in reverse provisioning order on domain reversion | Paper-grounded ordering is covered by T6 instead |
+| D6 | Exception taxonomy | CordisException (base) -> NoSuchServiceException (key + lookup path) / InactiveAccessException (declaration checks, D13) / DisposeException (suppressed aggregation) / SupplyConflictException / CyclicDependencyException / DivertedException | Aligns with the two access failures of upstream Algorithm 6 and the remaining guard signals; T7 fixes the aggregation semantics |
+| D7 | Lifecycle | Four-state fiber machine (INACTIVE/LOADING/ACTIVE/UNLOADING); inertia manifests as unload waiting for landing (Section 7) | Paper Sections 4.2/4.3.3 |
+| D8 | Threading (refined by D19) | The core started synchronous; the current concurrency model is D19 | Correct first, concurrent later |
+| D9 | Service.start/stop | Marked explicitly as an **extension** (not paper semantics): start() on provide within an active plugin domain; stop() in reverse provisioning order on domain reversion | Paper-grounded ordering is covered by T6/T12 |
 | D10 | License/attribution | Cordis4j is MIT; README credits the Cordis paper (cordiverse/paper) and the reference implementations cordiverse/cordis and @deepseek-ai/cordis (code repositories are MIT); the paper is cited, its license not asserted | Upstream code is fully MIT, no legal obstacle |
 | D11 | Reactive coeffects | ctx.inject(deps, effect) declares a fiber (paper Algorithm 3): it activates when every declared key resolves, unloads reactively when a relied binding is withdrawn, and may re-activate; the callback's returned Disposable joins the fiber domain (reverted first) | Implements the paper's satisfaction/notify/refresh; the effect-function shape mirrors Plugin |
 | D12 | Supply uniqueness | Two distinct active fibers may not supply one store key (SupplyConflictException); ambient provisioning overwrites freely (administrator semantics) | Paper Section 4.2 disjoint provide sets, fail-fast in Java |
@@ -120,8 +120,8 @@ by the module).
             // Disposable) - disposing it discards the child (implicit recovery, no explicit
             // inverse); the child is also registered as an effect of the active scope
         <T> Disposable intercept(ServiceKey<T> key, Object metadata)
-            // @Experimental: P1 stores/queries per-key interception metadata (the data-structure
-            // part of Section 5.1.2 @@intercept); consumption semantics harden in P2
+            // stores/queries per-key interception metadata (the data-structure part of
+            // Section 5.1.2 @@intercept); consumption semantics: the merge monoid of D17
         <T> Optional<Object> interceptOf(ServiceKey<T> key)
             // queries interception metadata walking up the tree; first hit wins; empty if none
 
@@ -178,7 +178,7 @@ by the module).
 
     public class CordisException extends RuntimeException          // base type
     public class NoSuchServiceException extends CordisException    // carries ServiceKey + lookup path
-    public class InactiveAccessException extends CordisException   // type only in P1; thrown by P2 declaration checks
+    public class InactiveAccessException extends CordisException   // carries the declaration checks of Algorithm 6 (D13)
     public class DisposeException extends CordisException          // suppressed = all cleanup failures
 
 ---
@@ -297,13 +297,13 @@ by the module).
 
 - Semantic versioning: breaking changes are allowed during 0.x, but each must update this
   contract, the decision log, and the CHANGELOG.
-- Stability anchors across P2/P3: the ServiceKey shape, the Disposable/EffectScope contracts, the
+- Stability anchors across 0.x: the ServiceKey shape, the Disposable/EffectScope contracts, the
   exception taxonomy, and the fork-cascade semantics.
-- P2 entry points (already reserved): declarative inject plus the Algorithm 3/5 drain ordering,
-  the inertial Lifecycle implementation, annotation injection, event filters, virtual-thread
-  asynchrony.
-- P3 entry points: bytecode-level HMR (custom ClassLoader / ModuleLayer evaluation, following the
-  OSGi and pf4j precedents).
+- Landed in v0.2.0: declarative inject with the Algorithm 3/5 drain ordering, the four-state
+  lifecycle with inertia, event filters, virtual-thread asynchrony, and the declarative loader
+  (D11-D20).
+- Remaining: annotation-based injection and bytecode-level HMR (custom ClassLoader / ModuleLayer
+  evaluation, following the OSGi and pf4j precedents).
 
 ---
 
