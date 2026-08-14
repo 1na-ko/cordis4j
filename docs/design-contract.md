@@ -1,190 +1,239 @@
-# Cordis4j 设计契约（Design Contract）
+# Cordis4j Design Contract
 
-> 状态：**v1.0 冻结**（对应 v0.1.0）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
-> 语义基线：cordis 论文《A Programming Paradigm for Spatiotemporal Composability》§3–§5（下文引用章节号即论文章节号）；
-> 参考实现：cordiverse/cordis 与 @deepseek-ai/cordis@4.0.1（MIT）。
-> Cordis4j 是论文语义的 **Java 重想**（inspired-by，非逐行移植）；与上游 TS API 的一切差异在 §5 显式声明。
-
----
-
-## 1. 目标与范围
-
-### 1.1 目标
-
-在 JVM 上实现"时空可组合性"内核（v0.1.0 垂直切片）：
-
-- **时间维（可逆效应）**：每个上下文变更携带显式逆，运行时按 LIFO 累积并在卸载时整体恢复（论文 §3.1、Algorithm 1）；
-- **空间维（反应式协效应）**：服务以类型化键供给/解析，支持限定符（realm 投影）与隔离派生（论文 §3.2、§5.1.2）；
-- **统一上下文树**：fork 派生隔离子上下文，dispose 级联恢复（论文 §3.3.1）；
-- **组件生命周期**：两态（INACTIVE/ACTIVE）全同步（论文 §4.2 简化；惯性状态机为 P2）。
-
-### 1.2 本轮范围外（P2/P3）
-
-声明式加载器与配置调和（§5.2.1）、HMR（§5.2.2）、惯性异步状态机（§4.3.3）、注解/代理注入（上游 mixin）、
-事件过滤器、线程安全、Spring/Quarkus/LangChain4j 集成、字节码级热替换（JVM ClassLoader 方案）。
+> Status: **v1.0, frozen** (for v0.1.0). Any semantic change must append a new decision-log entry
+> (Section 2) and bump this version.
+> Semantic baseline: the Cordis paper, *A Programming Paradigm for Spatiotemporal Composability*,
+> Sections 3-5 (section numbers below refer to that paper); reference implementations:
+> [cordiverse/cordis](https://github.com/cordiverse/cordis) and `@deepseek-ai/cordis`@4.0.1 (MIT).
+> Cordis4j is a **Java re-imagining** of the paper's semantics (inspired-by, not a line-by-line
+> port); every difference from the upstream TypeScript API is declared in Section 5.
+> Canonical language: **English**. Chinese translation: docs/zh/design-contract.zh-CN.md.
 
 ---
 
-## 2. 决策日志
+## 1. Goals and scope
 
-| # | 决策 | 内容 | 依据/理由 |
+### 1.1 Goals
+
+Ship the kernel of spatiotemporal composability on the JVM (v0.1.0 vertical slice):
+
+- **Temporal dimension (revertible effects)**: every context mutation carries an explicit
+  inverse; the runtime accumulates them in LIFO order and recovers them wholesale on unload
+  (paper Section 3.1, Algorithm 1);
+- **Spatial dimension (reactive coeffects)**: services are provided and resolved under typed
+  keys, with realm qualifiers and isolation derivation (paper Section 3.2, Section 5.1.2);
+- **Unified context tree**: `fork()` derives isolated child contexts, `dispose()` cascades
+  recovery (paper Section 3.3.1);
+- **Component lifecycle**: two states (INACTIVE/ACTIVE), fully synchronous (a simplification of
+  paper Section 4.2; the inertial state machine is P2).
+
+### 1.2 Out of scope this round (P2/P3)
+
+Declarative loader and configuration reconciliation (Section 5.2.1), HMR (Section 5.2.2), the
+inertial asynchronous state machine (Section 4.3.3), annotation/proxy-based injection (the
+upstream mixin), event filters, thread safety, Spring/Quarkus/LangChain4j integrations, and
+bytecode-level hot replacement (JVM ClassLoader approaches).
+
+---
+
+## 2. Decision log
+
+| # | Decision | Content | Rationale |
 |---|---|---|---|
-| D1 | 服务获取方式 | 显式 ctx.get(ServiceKey) / find 返回 Optional；注解注入在 P2 | 论文 §6.4：注解+编译期生成是 Proxy 中介的替代路径；P1 保持零依赖 |
-| D2 | 插件表示 | @FunctionalInterface Plugin.apply(Context) -> Disposable | 对应 fiber.apply；Java 惯用法 |
-| D3 | 事件模型 | 全同步分发；emit 当前上下文先行、沿父链上溯（子→根）；监听器抛异常向上传播、剩余监听器跳过 | 与上游一致；P2 虚拟线程异步 |
-| D4 | 命名 | groupId/包名 io.cordis4j；artifactId cordis4j-core；JPMS 模块 io.cordis4j.core | 检索确认无冲突；定稿不改 |
-| D5 | 服务键 | ServiceKey<T> = (Class<T> type, String qualifier)；qualifier 为 realm 一维投影；get(Foo.class) 为默认限定符糖 | 预留给 §6.2 同接口多提供者与 loader realm 的扩展点；T9/T10 固定行为 |
-| D6 | 异常体系 | CordisException（基类）→ NoSuchServiceException（含键与查找路径）/ InactiveAccessException（P2 声明校验启用）/ DisposeException（聚合清理失败） | 对齐上游 Algorithm 6 两类访问错误；T7 固定聚合语义 |
-| D7 | 生命周期 | 两态全同步；内部 Lifecycle 接缝（SimpleLifecycle 实现），P2 换惯性状态机 | 论文 §4.3.3 需异步任务句柄，P2 以虚拟线程重访 |
-| D8 | 线程模型 | P1 单线程，契约明文"未同步" | 先正确后并发 |
-| D9 | Service.start/stop | 显式标注为**扩展**（非论文语义）：活跃插件域内 provide 时 start()，域撤销时 stop() 逆序 | 不冒充论文语义；论文顺序保证由 T6 覆盖 |
-| D10 | 许可证/署名 | Cordis4j 以 MIT 发布；README 致谢 cordis 论文（cordiverse/paper）与参考实现 cordiverse/cordis、@deepseek-ai/cordis（代码仓库均 MIT）；论文仅引述、不断言其许可 | 上游代码全 MIT，无法律障碍 |
+| D1 | Service access | Explicit ctx.get(ServiceKey) / find returning Optional; annotation injection in P2 | Paper Section 6.4: annotations + compile-time generation are the sanctioned replacement for proxy mediation; P1 stays zero-dependency |
+| D2 | Plugin shape | @FunctionalInterface Plugin.apply(Context) -> Disposable; registrations during apply belong to an implicit effect scope | Mirrors the paper's fiber.apply; Java idiom |
+| D3 | Event model | Fully synchronous dispatch; emit runs the current context first, then walks the parent chain (child-to-root); a throwing listener propagates and the remaining listeners are skipped (documented) | Matches upstream; virtual-thread asynchrony in P2 |
+| D4 | Naming | groupId/package io.cordis4j; artifactId cordis4j-core; JPMS module io.cordis4j.core | Verified conflict-free; frozen |
+| D5 | Service keys | ServiceKey<T> = (Class<T> type, String qualifier); the qualifier is a one-dimensional projection of the realm; get(Foo.class) is the default-qualifier sugar | **The most important correction from the feasibility review**: reserves the extension point for paper Section 6.2 multi-provider services and loader realms, avoiding P2 rework |
+| D6 | Exception taxonomy | CordisException (base) -> NoSuchServiceException (with key and lookup path) / InactiveAccessException (thrown by P2 declaration checks) / DisposeException (aggregates cleanup failures) | Aligns with the two access failures of upstream Algorithm 6; T7 fixes the aggregation semantics |
+| D7 | Lifecycle | Two states, fully synchronous; internal Lifecycle seam (SimpleLifecycle implementation), replaced by the inertial state machine in P2 | Paper Section 4.3.3 needs asynchronous task handles; revisited with virtual threads in P2 |
+| D8 | Threading | P1 is single-threaded; the contract states "not synchronized" | Correct first, concurrent later |
+| D9 | Service.start/stop | Marked explicitly as an **extension** (not paper semantics): start() on provide within an active plugin domain; stop() in reverse provisioning order on domain reversion | Paper-grounded ordering is covered by T6 instead |
+| D10 | License/attribution | Cordis4j is MIT; README credits the Cordis paper (cordiverse/paper) and the reference implementations cordiverse/cordis and @deepseek-ai/cordis (code repositories are MIT); the paper is cited, its license not asserted | Upstream code is fully MIT, no legal obstacle |
 
 ---
 
-## 3. API 契约
+## 3. API contract
 
-包 io.cordis4j.core；实现类位于 io.cordis4j.core.internal（模块不导出）。
+Package io.cordis4j.core; implementation classes live in io.cordis4j.core.internal (not exported
+by the module).
 
     public interface Disposable extends AutoCloseable
-        语义：效应之逆。dispose() 幂等（重复调用 no-op）；close() 委托 dispose()。
-        约定：所有返回 Disposable 的 API，其 dispose 可在任意时刻调用；调用后注册物即被撤销。
+        Semantics: the inverse of an effect. dispose() is idempotent; close() delegates to it.
+        Contract: every API returning a Disposable may be disposed at any time; disposing reverts
+        the registration.
 
     public final class Disposables
-        none() -> Disposable：no-op 单例。
-        of(Runnable action) -> Disposable：首次 dispose 执行 action（至多一次），后续 no-op。
-        composite(Disposable... parts) -> Disposable：按参数顺序依次 dispose；某部分抛异常时收集并继续（语义同 DisposeException）。
+        none() -> Disposable: shared no-op singleton.
+        of(Runnable action) -> Disposable: runs action at most once on first dispose().
+        composite(Disposable... parts) -> Disposable: disposes parts sequentially in argument
+        order; failures are collected and reported as a DisposeException with suppressed causes.
 
     public record ServiceKey<T>(Class<T> type, String qualifier)
-        语义：服务键 = 类型 × 限定符（realm 一维投影）。of(type) 等价于 of(type, "")。
-        不变式：type 非 null；qualifier 非 null（构造器紧凑构造自动 requireNonNull）。
+        Semantics: service key = type x qualifier (a realm projection). of(type) equals
+        of(type, ""). Invariants: type and qualifier are never null (compact constructor).
 
-    public interface Service（扩展，D9）
+    public interface Service (extension, D9)
         default void start() {}
         default void stop() {}
-        语义：在活跃插件域内 provide 时立即 start()；域 dispose 时按注册逆序 stop()。仅当对象显式实现本接口时生效。
+        Semantics: start() runs immediately when provided inside an active plugin domain;
+        stop() runs in reverse provisioning order when the domain is reverted. Only effective
+        when the provided object explicitly implements this interface.
 
     @FunctionalInterface public interface Plugin
         Disposable apply(Context ctx);
-        语义：apply 在隐式效应域内执行（论文 fiber.apply）；域内一切注册归该插件所有，
-              卸载时 LIFO 撤销。apply 返回的 Disposable 并入该域（惯常返回 Disposables.none()）。
-              apply 抛异常：已登记效应先 LIFO 撤销，异常再传播（论文 §4.3.4 Failure 简化）。
+        Semantics: apply runs inside an implicit effect scope (the paper's fiber.apply); every
+        registration made through the context during apply belongs to the plugin and is reverted
+        LIFO on unload. The returned Disposable joins the domain (usually Disposables.none()).
+        If apply throws, the registrations made so far are reverted first (paper Section 4.3.4),
+        then the exception propagates with any reversion failures attached as suppressed.
 
     public interface Context extends Disposable
-        —— 协效应（§5.1.2）——
-        <T> T get(ServiceKey<T> key)   // 沿树上溯（realm 判定）；未提供抛 NoSuchServiceException（含路径）
-        <T> T get(Class<T> type)       // = get(ServiceKey.of(type))
-        <T> Optional<T> find(ServiceKey<T> key)  // 可选查找；never throws
+        -- Coeffects (Section 5.1.2) --
+        <T> T get(ServiceKey<T> key)      // walks the tree (realm-aware); NoSuchServiceException with path
+        <T> T get(Class<T> type)          // = get(ServiceKey.of(type))
+        <T> Optional<T> find(ServiceKey<T> key)  // optional lookup; never throws
         <T> Optional<T> find(Class<T> type)
         <T> Disposable provide(ServiceKey<T> key, T service)
-            // 覆盖式绑定（同上游 set 语义）；返回撤销注册的 Disposable；被覆盖后旧 Disposable 变 no-op
-        <T> Disposable provide(T service)  // 键 = 具体类 + 默认限定符
+            // overwrite semantics (like upstream set): returns the removal Disposable; the old
+            // Disposable becomes a no-op once overwritten
+        <T> Disposable provide(T service) // key = concrete class + default qualifier
         <T> Context isolate(Class<T> type, String realm)
-            // 派生子上下文，仅覆盖该类型键的 realm 映射（§5.1.2 派生语义）；
-            // 返回的 Context 即该子上下文（Context 继承 Disposable），dispose 它 = 丢弃子上下文（隐式恢复，无显式逆）；
-            // 子上下文同时被登记为父的活动域效应 → 父卸载时级联丢弃
+            // derives a child context overriding the realm mapping of that type only (Section
+            // 5.1.2 derivation semantics); the returned Context IS the child (Context extends
+            // Disposable) - disposing it discards the child (implicit recovery, no explicit
+            // inverse); the child is also registered as an effect of the active scope
         <T> Disposable intercept(ServiceKey<T> key, Object metadata)
-            // @Experimental：P1 仅写入/查询每键拦截元数据表（§5.1.2 @@intercept 的数据结构部分）；
-            // 元数据的消费语义（如何调整绑定使用）在 P2 硬化
+            // @Experimental: P1 stores/queries per-key interception metadata (the data-structure
+            // part of Section 5.1.2 @@intercept); consumption semantics harden in P2
         <T> Optional<Object> interceptOf(ServiceKey<T> key)
-            // 查询拦截元数据：沿树上溯，首中即返；无则 empty
+            // queries interception metadata walking up the tree; first hit wins; empty if none
 
-        —— 效应（§5.1.1，Algorithm 1）——
+        -- Effects (Section 5.1.1, Algorithm 1) --
         EffectScope effect()
-            // 开启效应分组。惯用法：try (var fx = ctx.effect()) { fx.track(...); ... }
-            // close()/dispose() 按 LIFO 执行域内登记的逆；失败聚合为 DisposeException（T7）
+            // opens an effect group. Idiom: try (var fx = ctx.effect()) { fx.track(...); ... }
+            // close()/dispose() reverts the tracked effects in LIFO order; failures aggregate
+            // into DisposeException (T7)
 
-        —— 事件（效应实例，D3）——
+        -- Events (effects that are registrations; D3) --
         <E> Disposable on(Class<E> type, Consumer<E> listener)
         <E> void emit(E event)
-            // 同步分发：本上下文监听器 → 父链 → 根（子 emit 触发祖先监听器；祖先 emit 不触子）
+            // synchronous: this context's listeners, then the parent chain to the root (a child
+            // emit reaches ancestor listeners; an ancestor emit never reaches children)
 
-        —— 空间（§3.3.1）——
-        Context fork()          // 派生子上下文；子 dispose 注册为父活动域效应 → 父卸载自动级联子
-        Context root()          // 根上下文
+        -- Space (Section 3.3.1) --
+        Context fork()    // derives a child; the child's disposal is an effect of the active scope
+        Context root()    // the root context
 
-        —— 组合入口（Algorithm 4 的 Java 形态）——
+        -- Composition entry points (Algorithm 4 in Java form) --
         Disposable plugin(Plugin plugin)
-        Disposable plugin(Object... services)   // 便捷：仅 provide 各服务的插件
-        Logger logger(String name)             // 最小 Logger + java.util.logging 适配
+        Disposable plugin(Object... services)  // convenience: a plugin that only provides services
+        Logger logger(String name)             // minimal Logger + java.util.logging adapter
 
     public final class Contexts
-        static Context create()  // 创建根上下文
+        static Context create()  // creates a root context
 
-    public class CordisException extends RuntimeException          // 体系基类
-    public class NoSuchServiceException extends CordisException    // 携带 ServiceKey 与查找路径
-    public class InactiveAccessException extends CordisException   // P1 仅定义类型，P2 声明校验时抛出
-    public class DisposeException extends CordisException          // suppressed 收集全部清理失败
+    public class CordisException extends RuntimeException          // base type
+    public class NoSuchServiceException extends CordisException    // carries ServiceKey + lookup path
+    public class InactiveAccessException extends CordisException   // type only in P1; thrown by P2 declaration checks
+    public class DisposeException extends CordisException          // suppressed = all cleanup failures
 
 ---
 
-## 4. 与论文/上游的对应表
+## 4. Mapping to the paper / upstream
 
-| Cordis4j | 论文构造 | 上游 TS |
+| Cordis4j | Paper construct | Upstream TS |
 |---|---|---|
-| provide / get | set/get（Algorithm 2：k → ρ(k) → σ 两层解析） | ctx.provide(name, value) / ctx.get(name) |
-| ServiceKey(type, qualifier) | 键 k 与 realm 符号 ρ(k) 的 P1 投影 | 字符串键 + ctx.isolate(name, realm) |
-| effect().track(d) | ctx.effect：逆 prepend 进累积器（LIFO） | ctx.effect(callback) |
-| plugin(Plugin) | use/instantiation（Algorithm 4：父效应携带子卸载） | ctx.plugin(plugin) |
-| fork() | 上下文树分叉（§3.3.1：子可见父、父不可见子） | ctx.fork() |
-| dispose() | 撤回（§4.3.1）+ 累积器恢复 | fiber dispose |
-| isolate(type, realm) | §5.1.2 派生子上下文覆盖 realm 表 | ctx.isolate(name, realm) |
-| intercept(key, meta) | §5.1.2 @@intercept 数据结构 | ctx.intercept(name, config) |
-| on/emit | 事件=效应实例；沿树冒泡 | ctx.on / ctx.emit |
+| provide / get | set/get (Algorithm 2: two-layer resolution k -> rho(k) -> sigma) | ctx.provide(name, value) / ctx.get(name) |
+| ServiceKey(type, qualifier) | P1 projection of key k and realm symbol rho(k) | string keys + ctx.isolate(name, realm) |
+| effect().track(d) | ctx.effect: inverse prepended to the accumulator (LIFO) | ctx.effect(callback) |
+| plugin(Plugin) | use/instantiation (Algorithm 4: the parent effect carries the child unload) | ctx.plugin(plugin) |
+| fork() | context-tree fork (Section 3.3.1: child sees parent, never the reverse) | ctx.fork() |
+| dispose() | withdrawal (Section 4.3.1) + accumulator recovery | fiber dispose |
+| isolate(type, realm) | Section 5.1.2 derived child overriding the realm table | ctx.isolate(name, realm) |
+| intercept(key, meta) | Section 5.1.2 @@intercept data structure | ctx.intercept(name, config) |
+| on / emit | events as effects; tree bubbling | ctx.on / ctx.emit |
 
 ---
 
-## 5. 偏离与扩展声明（与上游 TS 的显式差异）
+## 5. Deviations and extensions (explicit differences from upstream TS)
 
-1. 键制：上游为字符串键 + 每类型 module augmentation；Cordis4j 为 ServiceKey(Class, qualifier)。qualifier 承担 realm 角色，P2 的 loader 多 realm（§5.2.1）在 ServiceKey 上扩展而非换键制。
-2. 获取失败：上游 ctx.get(key)（store 查询）从不失败，失败的是 Proxy 属性访问（INACTIVE_ACCESS / UNDECLARED_ACCESS）；Cordis4j get() 抛 NoSuchServiceException、find() 返回 Optional，InactiveAccessException 预留给 P2 声明校验。
-3. 生命周期：上游为惯性异步状态机（RELOADING/UNLOADING/FAILED）；P1 为两态同步 SimpleLifecycle，Lifecycle 接缝保证 P2 可替换。
-4. 异步：上游效应与迁移均为异步（create_task）；P1 全同步，P2 以虚拟线程重访。
-5. Service.start/stop：上游服务为值、生命周期在 fiber 层；Cordis4j 的 Service 钩子为显式扩展（D9），不构成论文语义的一部分。
-6. 属性访问：上游 ctx[key] 经 Proxy 中介并强制声明校验（Algorithm 6）；Cordis4j 无动态属性，P2 以 @Inject 注解 + 编译期/代理生成实现同等中介。
-7. 事件过滤器（ctx.filter）：P2。
-8. Logger/logger(name)：为对齐上游 built-in service 提供的最小化版本（java.util.logging 适配），不引入第三方依赖。
-
----
-
-## 6. 边界语义（逐条由测试固定）
-
-1. dispose 幂等：重复 dispose no-op。
-2. dispose 重入：某逆的执行过程中再次 dispose 同一域/上下文 → 第二次调用 no-op。
-3. 已 dispose 上下文：其 get/emit/plugin/fork/provide 抛 IllegalStateException。
-4. provide 覆盖：同键重复 provide 覆盖旧绑定；旧 Disposable 变 no-op；被覆盖服务若实现 Service 则其 stop() 在覆盖时按扩展语义执行。
-5. null 拒绝：全部公共 API 参数 Objects.requireNonNull。
-6. 监听器异常：emit 中某监听器抛异常 → 传播给 emit 调用者，剩余监听器（含祖先链）不再投递。
-7. plugin.apply 异常：已登记效应 LIFO 撤销后异常传播。
-8. 查找路径：get 沿树上溯；每层先查 realmOverrides[type]：有且 ≠ key.qualifier 时跳过该层（隔离），否则查该层服务库。
-9. isolate 派生：子上下文继承父一切，仅覆盖指定 type 的 realm；dispose 子即整体丢弃。
-10. fork 级联：子上下文的 dispose 注册为父的活动域效应；父 dispose 时子先于父的早先效应被撤销（LIFO 跨 fiber 树，T6）。
-11. 事件冒泡方向：仅子→祖先；同上下文监听器按注册顺序同步投递。
-12. 单线程：全部操作非线程安全，跨线程共享上下文属未定义行为（D8）。
+1. Key scheme: upstream uses string keys plus per-type module augmentation; Cordis4j uses
+   ServiceKey(Class, qualifier). The qualifier plays the realm role; the P2 loader's multi-realm
+   support (Section 5.2.1) extends ServiceKey rather than replacing the key scheme.
+2. Lookup failure: upstream ctx.get(key) (a store lookup) never fails - what fails is proxy
+   property access (INACTIVE_ACCESS / UNDECLARED_ACCESS); Cordis4j get() throws
+   NoSuchServiceException, find() returns Optional, and InactiveAccessException is reserved for
+   P2 declaration checks.
+3. Lifecycle: upstream is the inertial asynchronous state machine (RELOADING/UNLOADING/FAILED);
+   P1 is the two-state synchronous SimpleLifecycle; the Lifecycle seam keeps P2 replaceable.
+4. Asynchrony: upstream effects and transitions are asynchronous (create_task); P1 is fully
+   synchronous; P2 revisits with virtual threads.
+5. Service.start/stop: upstream services are values and lifecycle lives at the fiber level;
+   Cordis4j's Service hooks are an explicit extension (D9), not part of the paper semantics.
+6. Property access: upstream ctx[key] is Proxy-mediated and enforces declarations (Algorithm 6);
+   Cordis4j has no dynamic properties; P2 provides the equivalent mediation via @Inject
+   annotations plus compile-time/proxy generation.
+7. Event filters (ctx.filter): P2.
+8. Logger/logger(name): a minimal, zero-dependency alignment with the upstream built-in logger
+   service (java.util.logging adapter).
 
 ---
 
-## 7. 生命周期模型（P1）
+## 6. Boundary semantics (each clause fixed by tests)
 
-- 状态：INACTIVE / ACTIVE（两态）。
-- 迁移：域创建 → 执行 apply（=LOADING 的同步化）→ ACTIVE；dispose → 逆序撤销 → INACTIVE。
-- 接缝：internal.Lifecycle { void dispose(); }，P1 唯一实现 SimpleLifecycle；
-  P2 以惯性状态机实现替换（对应论文 Algorithm 5 的 refresh/reload/unload 及 fiber.inertia）。
+1. dispose is idempotent: repeated dispose is a no-op.
+2. dispose re-entrancy: disposing the same scope/context from inside a reversion is a no-op.
+3. A disposed context: get/emit/plugin/fork/provide/effect/isolate throw IllegalStateException.
+4. provide overwrite: providing the same key again replaces the binding; the old Disposable
+   becomes a no-op; a replaced service's stop() runs immediately (extension D9).
+5. Null rejection: all public APIs reject null with NullPointerException (requireNonNull).
+6. Listener failure: a throwing listener propagates to the emit caller; remaining listeners
+   (including ancestors) are not invoked.
+7. plugin.apply failure: registered effects are reverted LIFO, then the exception propagates.
+8. Lookup path: get walks the tree upward; at each level the realm override for the type is
+   consulted - when present and different from the key's qualifier the level is skipped, otherwise
+   the level's store is consulted.
+9. isolate derivation: the child inherits everything from the parent except the overridden realm
+   for the given type; disposing the child discards it wholesale.
+10. fork cascade: a child's disposal is registered as an effect of the parent's active scope; on
+    parent dispose, the child reverts before the parent's earlier effects (LIFO across the fiber
+    tree, T6).
+11. Event bubbling direction: child-to-ancestor only; listeners within one context run in
+    registration order.
+12. Single-threaded: all operations are not thread-safe; sharing a context across threads is
+    undefined behavior (D8).
 
 ---
 
-## 8. 演进策略
+## 7. Lifecycle model (P1)
 
-- 语义版本化：0.x 期间允许破坏性变更，但必须更新本契约 + 决策日志 + CHANGELOG。
-- 稳定锚点：ServiceKey 形态、Disposable/EffectScope 契约、异常体系、fork 级联语义为跨 P2/P3 稳定接口。
-- P2 入口（已预留）：声明式 inject + Algorithm 3/5 排空顺序、Lifecycle 惯性实现、注解注入、事件过滤、虚拟线程异步。
-- P3 入口：字节码级 HMR（自定义 ClassLoader/ModuleLayer 评估，参考 OSGi/pf4j 先例）。
+- States: INACTIVE / ACTIVE (two states).
+- Transitions: domain created -> apply runs (the synchronous form of LOADING) -> ACTIVE;
+  dispose -> LIFO reversion -> INACTIVE.
+- Seam: internal Lifecycle { void dispose(); }, with SimpleLifecycle as the sole P1
+  implementation; P2 replaces it with the inertial state machine (paper Algorithm 5
+  refresh/reload/unload and fiber.inertia).
 
 ---
 
-## 9. 参考
+## 8. Evolution strategy
 
-- 论文：A Programming Paradigm for Spatiotemporal Composability，https://github.com/cordiverse/paper
-- 上游：https://github.com/cordiverse/cordis ；@deepseek-ai/cordis@4.0.1（vendored in deepseek-harness）
-- 可行性评估（已归档）：docs/design/cordis4j-feasibility-review.md
-- Koishi 可逆插件设计：https://koishi.chat/zh-CN/cookbook/design/disposable.html
+- Semantic versioning: breaking changes are allowed during 0.x, but each must update this
+  contract, the decision log, and the CHANGELOG.
+- Stability anchors across P2/P3: the ServiceKey shape, the Disposable/EffectScope contracts, the
+  exception taxonomy, and the fork-cascade semantics.
+- P2 entry points (already reserved): declarative inject plus the Algorithm 3/5 drain ordering,
+  the inertial Lifecycle implementation, annotation injection, event filters, virtual-thread
+  asynchrony.
+- P3 entry points: bytecode-level HMR (custom ClassLoader / ModuleLayer evaluation, following the
+  OSGi and pf4j precedents).
+
+---
+
+## 9. References
+
+- Paper: A Programming Paradigm for Spatiotemporal Composability, https://github.com/cordiverse/paper
+- Upstream: https://github.com/cordiverse/cordis ; @deepseek-ai/cordis@4.0.1 (vendored in deepseek-harness)
+- Feasibility review (archived): docs/design/cordis4j-feasibility-review.md
+- Koishi's reversible-plugin design: https://koishi.chat/zh-CN/cookbook/design/disposable.html
