@@ -1,8 +1,9 @@
 # Cordis4j 设计契约（Design Contract）
 
 > 本文档是英文规范本 [../design-contract.md](../design-contract.md) 的中文译本（规范本语言：英文）。
-> 如有歧义，以英文版为准。最近同步：2026-08-14（v2.0 全量）。
-> 状态：**v2.0 冻结**（对应 v0.2.0）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
+> 如有歧义，以英文版为准。最近同步：2026-08-15（v2.1，追加 D21）。
+> 状态：**v2.1 冻结**（对应 v0.2.1）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
+> v2.1 在 v2.0 基础上追加 D21（注解式注入）。
 > 语义基线：cordis 论文《A Programming Paradigm for Spatiotemporal Composability》§3–§5（下文引用章节号即论文章节号）；
 > 参考实现：cordiverse/cordis 与 @deepseek-ai/cordis@4.0.1（MIT）。
 > Cordis4j 是论文语义的 **Java 重想**（inspired-by，非逐行移植）；与上游 TS API 的一切差异在 §5 显式声明。
@@ -28,7 +29,7 @@
 ### 1.2 范围外（P3）
 
 字节码级热模块替换（§5.2.2；自定义 ClassLoader / ModuleLayer 方案评估，参考 OSGi 与 pf4j 先例）、
-注解/代理式注入、生态集成（Spring、Quarkus、LangChain4j）。
+注入的编译期注解处理（运行时反射形态已落地为 D21）、生态集成（Spring、Quarkus、LangChain4j）。
 
 ---
 
@@ -56,6 +57,7 @@
 | D18 | 声明式加载器 | LoaderConfig/ComponentEntry 按 id 键控 diff；组件实例即版本（换实例即重载）；调和事务性（失败恢复上一配置）；dispose 按装载逆序 | 论文 §5.2.1 / Algorithm 10 的配置级形态；record 相等性是 Java 原生配置 diff |
 | D19 | 线程 | 注册表状态由内部锁保护，获取方向单一（fiber 注册表 → 各上下文 store → 域）；用户代码在锁外执行；provide 触发的反应式通知在该 provide 的监视器释放后运行 | 无锁环；长激活与 teardown（可能 join 任务）从不持有注册表监视器 |
 | D20 | 撤退顺序 | 卸载 fiber 先撤出其供给的全部键（排空全部 dependents，含仍在 LOADING 者——惯性的链式卸载），再 LIFO 撤销自身效应；被排空的 dependent 在其 teardown 中仍可解析该依赖 | 论文 L-Leave/L-Unload 与 Theorem 63 的精确实现 |
+| D21 | 注解式注入 | 实例的 @Inject(qualifier) 字段由 Injects.injectFields(ctx, instance) 装配为一个 D11 声明：激活时以快照填充字段，撤退/退役时清空，再满足时重填；static/final/原始类型字段装配时立即失败；无注解字段为 no-op | 论文 §6.4：语言缺乏透明拦截原语时，认可注解 + 运行时反射中介依赖访问；核心保持零依赖（仅 JDK 反射） |
 
 ---
 
@@ -134,6 +136,14 @@
                                   TriFunction<Context, T1, T2, Disposable> onSatisfied)
             // 满足即激活；撤销即反应式卸载（先排空）；未退役未失败时可重激活；
             // 激活失败路由至卸载
+
+        -- 注解式注入（D21，§6.4）--
+        @interface Inject                                // FIELD；String qualifier() 默认 ""
+        public final class Injects
+            static Disposable injectFields(Context ctx, Object instance)
+            // 扫描类层级（至 Object 为止）的 @Inject 字段装配为一个声明；
+            // 以激活时刻快照填充，撤退/退役清空，再满足重填；
+            // static/final/原始类型字段立即失败（IllegalArgumentException）；无注解字段 -> Disposables.none()
 
     public final class Contexts
         static Context create()  // 创建根上下文
@@ -233,6 +243,9 @@
 21. Loader：reconcile 装载新 id、卸载消失 id、重载换实例条目（实例身份即版本）；失败的 reconcile
     恢复上一配置；dispose 按装载逆序卸载（T21）。
 22. 重复 provide：同实例同键 provide 两次，第一个移除句柄为 no-op；当前句柄才移除绑定（T23）。
+23. 注解式注入：实例的 @Inject 字段构成单一声明（D21）——全部键解析后填充，所依赖供给撤退或
+    声明退役时清空，再满足时重填；字段持有激活时刻快照，故 ambient 覆盖不触碰已激活声明，
+    而供给 fiber 卸载沿 fiber 级供给关系排空它（T24）。
 
 ---
 
@@ -253,7 +266,9 @@
 - 跨 P3 的稳定锚点：ServiceKey 形态、Disposable/EffectScope 契约、异常体系、fork 级联语义、
   排空顺序（D20）。
 - P3 入口：字节码级 HMR（自定义 ClassLoader / ModuleLayer 评估，参考 OSGi 与 pf4j 先例）、
-  注解式注入、生态集成（Spring、Quarkus、LangChain4j）。
+  注入的编译期注解处理、生态集成（Spring、Quarkus、LangChain4j）。
+- v2.1 已落地：运行时反射注解式注入——`Injects.injectFields` 将 `@Inject` 字段装配为一个
+  反应式声明（D21、T24）。
 
 ---
 

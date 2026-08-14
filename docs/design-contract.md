@@ -1,7 +1,7 @@
 # Cordis4j Design Contract
 
-> Status: **v2.0, frozen** (for v0.2.0). Any semantic change must append a new decision-log entry
-> (Section 2) and bump this version.
+> Status: **v2.1, frozen** (for v0.2.1). Any semantic change must append a new decision-log entry
+> (Section 2) and bump this version. v2.1 appends D21 (annotation injection) on top of v2.0.
 > Semantic baseline: the Cordis paper, *A Programming Paradigm for Spatiotemporal Composability*,
 > Sections 3-5 (section numbers below refer to that paper); reference implementations:
 > [cordiverse/cordis](https://github.com/cordiverse/cordis) and `@deepseek-ai/cordis`@4.0.1 (MIT).
@@ -37,8 +37,9 @@ of the paper's Sections 3-5):
 ### 1.2 Out of scope (P3)
 
 Bytecode-level hot module replacement (Section 5.2.2; custom ClassLoader / ModuleLayer
-evaluation following the OSGi and pf4j precedents), annotation/proxy-based injection, and
-ecosystem integrations (Spring, Quarkus, LangChain4j).
+evaluation following the OSGi and pf4j precedents), compile-time annotation processing for
+injection (the runtime-reflection form landed as D21), and ecosystem integrations (Spring,
+Quarkus, LangChain4j).
 
 ---
 
@@ -66,6 +67,7 @@ ecosystem integrations (Spring, Quarkus, LangChain4j).
 | D18 | Declarative loader | LoaderConfig/ComponentEntry reconcile by id-keyed diff; the component instance is the version (a changed instance reloads); reconcile is transactional (failure restores the previous entries); dispose unloads in reverse load order | Paper Section 5.2.1 / Algorithm 10 at configuration level; record equality is the Java-native config diff |
 | D19 | Threading | Registry state is guarded by internal locks in one acquisition direction (fiber registry, then per-context stores, then scopes); user code runs outside them; reactive notifications triggered by a provide run after that provide's monitor is released | No lock cycles; long activations and teardowns (which may join tasks) never hold the registry monitor |
 | D20 | Withdrawal order | Unloading a fiber first withdraws every key it supplies (draining all dependents, including still-LOADING ones - the chained unload of inertia) and only then reverts its effects LIFO; a drain-interrupted dependent still resolves the dependency during its teardown | Paper L-Leave/L-Unload and Theorem 63 exactly |
+| D21 | Annotation injection | @Inject(qualifier) fields of an instance, assembled by Injects.injectFields(ctx, instance) into one D11 declaration: activation populates the fields as snapshots, withdrawal/retirement clears them, re-satisfaction refills; assembly fails fast on static/final/primitive fields, and an instance without annotated fields is a no-op | Paper Section 6.4 sanctions annotation-mediated access via runtime reflection where the language has no transparent interception primitive; keeps core zero-dependency (JDK reflection only) |
 
 ---
 
@@ -157,6 +159,15 @@ by the module).
                               TriFunction<Context, T1, T2, Disposable> onSatisfied)
         // activates when satisfied; unloads reactively on withdrawal (drained first);
         // re-activates while neither retired nor failed; activation failures route to unload
+
+    // ── Annotation injection (D21, paper Section 6.4) ──
+    @interface Inject                                // FIELD; String qualifier() default ""
+    public final class Injects
+        static Disposable injectFields(Context ctx, Object instance)
+        // scans the class hierarchy's @Inject fields (up to Object) into one declaration;
+        // populates them as activation-time snapshots, clears them on withdrawal/retirement,
+        // refills on re-satisfaction; fail-fast (IllegalArgumentException) on static/final/
+        // primitive fields; no annotated field -> Disposables.none()
 
     // ── Asynchrony (D15, paper Sections 4.3.2-4.3.3) ──
     Disposable pluginAsync(AsyncPlugin plugin)  // virtual thread; waits for activation to land
@@ -276,6 +287,11 @@ by the module).
     dispose unloads in reverse load order (T21).
 22. Repeat provide: providing the same instance twice under one key makes the first removal
     disposable a no-op; the current one removes the binding (T23).
+23. Annotation injection: an instance's @Inject fields form one declaration (D21) - populated
+    when every field key resolves, cleared when a relied supply withdraws or the declaration
+    retires, refilled on re-satisfaction; fields hold activation-time snapshots, so an ambient
+    overwrite does not touch an activated declaration, while a supplying fiber's unload drains
+    it through the fiber-level supply relation (T24).
 
 ---
 
@@ -302,8 +318,10 @@ by the module).
 - Landed in v0.2.0: declarative inject with the Algorithm 3/5 drain ordering, the four-state
   lifecycle with inertia, event filters, virtual-thread asynchrony, and the declarative loader
   (D11-D20).
-- Remaining: annotation-based injection and bytecode-level HMR (custom ClassLoader / ModuleLayer
-  evaluation, following the OSGi and pf4j precedents).
+- Landed since (v2.1): runtime-reflection annotation injection - `@Inject` fields assembled by
+  `Injects.injectFields` into one reactive declaration (D21, T24).
+- Remaining: compile-time annotation processing for injection, and bytecode-level HMR (custom
+  ClassLoader / ModuleLayer evaluation, following the OSGi and pf4j precedents).
 
 ---
 

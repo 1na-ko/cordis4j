@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Annotation-mediated injection (paper Section 6.4, decision D21): `@Inject(qualifier)` fields
+  assembled by `Injects.injectFields(ctx, instance)` into one reactive declaration - populated as
+  activation-time snapshots when every field key resolves, cleared on withdrawal or retirement,
+  refilled on re-satisfaction; assembly fails fast on static/final/primitive fields; an instance
+  without annotated fields is a no-op (T24). Zero-dependency (JDK reflection only).
+- Design contract v2.1: decision D21 appended, boundary semantics 23, API contract section for
+  `Inject`/`Injects`.
+
 ## [0.2.0] - 2026-08-14
 
 Full coverage of the paper's core-library semantics (Sections 3-5, Algorithms 1-6): reactive

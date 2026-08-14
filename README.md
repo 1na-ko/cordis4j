@@ -67,6 +67,7 @@ disappear, or are replaced.
 |---|---|---|
 | Revertible effects, LIFO accumulator (§3.1, Alg. 1) | ✅ | `EffectScope`, `Disposable` |
 | Reactive coeffects: satisfaction, notify, refresh (§3.2, Alg. 3) | ✅ | `Context.inject` |
+| Annotation-mediated injection (§6.4) | ✅ | `@Inject`, `Injects.injectFields` |
 | Withdrawal drain, provider-teardown ordering (§4.3.1, Th. 63) | ✅ | automatic on unload |
 | Supply uniqueness (§4.2) | ✅ | `SupplyConflictException` |
 | Declaration mediation / capability access (Alg. 6) | ✅ | enforced in declarative fibers |
@@ -100,14 +101,15 @@ Any of the others with `-Dexec.mainClass=io.cordis4j.demo.<DemoName>`.
 ## Build & quality gates
 
 ```console
-mvn verify   # enforcer + spotless + tests (T1-T23, 70 tests) + jacoco (>= 85%) + javadoc + dependency analysis
+mvn verify   # enforcer + spotless + tests (T1-T24, 77 tests) + jacoco (>= 85%) + javadoc + dependency analysis
 ```
 
 ## Roadmap
 
-- **P3** — bytecode-level hot module replacement (custom ClassLoader / ModuleLayer evaluation,
-  following the OSGi and pf4j precedents), annotation-based injection, and ecosystem
-  integrations (Spring, Quarkus, LangChain4j).
+- **P3** — compile-time annotation processing for injection (the runtime-reflection form has
+  landed: `@Inject` / `Injects`), bytecode-level hot module replacement (custom ClassLoader /
+  ModuleLayer evaluation, following the OSGi and pf4j precedents), and ecosystem integrations
+  (Spring, Quarkus, LangChain4j).
 
 ## Contributing
 
