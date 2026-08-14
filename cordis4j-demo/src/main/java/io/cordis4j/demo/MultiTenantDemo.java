@@ -14,9 +14,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 多租户隔离演示（对标 DeepSeek Harness 的会话沙箱 / 论文 §3.2.2 isolate 派生）：
+ * Multi-tenant isolation demo (the DeepSeek Harness session-sandbox pattern; the isolate derivation
+ * of paper Section 3.2.2):
  *
- * <p>根上下文提供共享基础设施；每个租户是 {@code isolate} 派生的子树——同一服务类型在各自 realm 内解析到各自的实现，互不可见；销毁租户即整体丢弃，根不受影响。
+ * <p>The root context provides shared infrastructure; each tenant is a subtree derived with {@code
+ * isolate} - the same service type resolves to each tenant's own implementation inside its own
+ * realm, invisible to the others; disposing a tenant discards its subtree wholesale, leaving the
+ * root untouched.
  */
 public final class MultiTenantDemo {
 
@@ -35,10 +39,10 @@ public final class MultiTenantDemo {
     List<String> log = new ArrayList<>();
     Context app = Contexts.create();
 
-    // 租户 alice：隔离域内提供自己的 Secrets；查询自动路由到该 realm
+    // Tenant alice: provides its own Secrets inside the isolated realm; lookups route there
     Context alice = app.isolate(Secrets.class, "alice");
     alice.plugin(new SecretsPlugin("alice"));
-    // 租户 bob：同名服务类型，独立 realm
+    // Tenant bob: same service type, independent realm
     Context bob = app.isolate(Secrets.class, "bob");
     bob.plugin(new SecretsPlugin("bob"));
 
@@ -46,11 +50,11 @@ public final class MultiTenantDemo {
     log.add("bob   sees: " + bob.get(Secrets.class).tenantKey());
     log.add("app   sees secrets? " + app.find(Secrets.class).isPresent());
 
-    // 会话内再 fork 一层：孙上下文继承租户 realm
+    // One more fork inside the session: the grandchild inherits the tenant realm
     Context aliceSession = alice.fork();
     log.add("alice session inherits: " + aliceSession.get(Secrets.class).tenantKey());
 
-    alice.dispose(); // 整棵租户子树丢弃
+    alice.dispose(); // the whole tenant subtree is discarded
     log.add("after alice.dispose, bob still: " + bob.get(Secrets.class).tenantKey());
 
     log.forEach(System.out::println);
