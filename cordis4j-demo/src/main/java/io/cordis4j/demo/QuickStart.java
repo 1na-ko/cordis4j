@@ -2,7 +2,7 @@
  * Copyright 2025 the Cordis4j contributors
  * SPDX-License-Identifier: MIT
  */
-package demo;
+package io.cordis4j.demo;
 
 import io.cordis4j.core.Context;
 import io.cordis4j.core.Contexts;
