@@ -10,14 +10,21 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Objects;
 
-/** The default {@link Context.EffectScope}: a self-contained LIFO group of tracked effects. */
+/**
+ * The default {@link Context.EffectScope}: a self-contained LIFO group of tracked effects.
+ *
+ * <p>Methods are synchronized: an asynchronously activated fiber tracks effects from its carrier
+ * thread while teardown may run on another. {@link #dispose()} runs the recorded disposables
+ * outside the lock (they are user code and may join spawned tasks), so a disposable racing a
+ * concurrent dispose is still reverted at most once.
+ */
 final class EffectScopeImpl implements Context.EffectScope {
 
-  private final Deque<Disposable> effects = new ArrayDeque<>();
+  private Deque<Disposable> effects = new ArrayDeque<>();
   private boolean disposed;
 
   @Override
-  public <D extends Disposable> D track(D effect) {
+  public synchronized <D extends Disposable> D track(D effect) {
     Objects.requireNonNull(effect, "effect");
     if (disposed) {
       throw new IllegalStateException("Effect scope is already disposed");
@@ -28,10 +35,15 @@ final class EffectScopeImpl implements Context.EffectScope {
 
   @Override
   public void dispose() {
-    if (disposed) {
-      return;
+    Deque<Disposable> pending;
+    synchronized (this) {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      pending = effects;
+      effects = new ArrayDeque<>();
     }
-    disposed = true;
-    SimpleLifecycle.INSTANCE.revert(effects);
+    SimpleLifecycle.INSTANCE.revert(pending);
   }
 }

@@ -5,10 +5,11 @@
 package io.cordis4j.core;
 
 /**
- * Reserved for dependency-declaration checks: accessing a service while the declaring component is
- * inactive (the paper's INACTIVE_ACCESS failure, Algorithm 6).
+ * Raised by dependency-declaration checks (paper Algorithm 6): a declarative component tried to
+ * resolve a key outside its declaration and its own supplies.
  *
- * <p>P1 only defines the type; it is thrown once P2 introduces dependency declarations.
+ * <p>Declarations are enforced while a component declared through {@code inject} runs; plain
+ * plugins (no declaration) keep unrestricted access.
  */
 public class InactiveAccessException extends CordisException {
 
@@ -22,7 +23,17 @@ public class InactiveAccessException extends CordisException {
    * @param key the key being accessed
    */
   public InactiveAccessException(ServiceKey<?> key) {
-    super("Accessing " + key + " while its declaring component is inactive");
+    this(key, "accessing while the declaring component is inactive");
+  }
+
+  /**
+   * Constructs the exception with a detail naming the check that failed.
+   *
+   * @param key the key being accessed
+   * @param detail the failing check, e.g. {@code undeclared access}
+   */
+  public InactiveAccessException(ServiceKey<?> key, String detail) {
+    super("Access to " + key + " rejected: " + detail);
     this.key = key;
   }
 

@@ -1,8 +1,8 @@
 # Cordis4j 设计契约（Design Contract）
 
 > 本文档是英文规范本 [../design-contract.md](../design-contract.md) 的中文译本（规范本语言：英文）。
-> 如有歧义，以英文版为准。最近同步：2026-08-14。
-> 状态：**v1.0 冻结**（对应 v0.1.0）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
+> 如有歧义，以英文版为准。最近同步：2026-08-14（v2.0 全量）。
+> 状态：**v2.0 冻结**（对应 v0.2.0）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
 > 语义基线：cordis 论文《A Programming Paradigm for Spatiotemporal Composability》§3–§5（下文引用章节号即论文章节号）；
 > 参考实现：cordiverse/cordis 与 @deepseek-ai/cordis@4.0.1（MIT）。
 > Cordis4j 是论文语义的 **Java 重想**（inspired-by，非逐行移植）；与上游 TS API 的一切差异在 §5 显式声明。
@@ -13,34 +13,49 @@
 
 ### 1.1 目标
 
-在 JVM 上实现"时空可组合性"内核（v0.1.0 垂直切片）：
+在 JVM 上交付时空可组合性内核（v0.2.0，论文 §3–§5 核心库层全覆盖）：
 
-- **时间维（可逆效应）**：每个上下文变更携带显式逆，运行时按 LIFO 累积并在卸载时整体恢复（论文 §3.1、Algorithm 1）；
-- **空间维（反应式协效应）**：服务以类型化键供给/解析，支持限定符（realm 投影）与隔离派生（论文 §3.2、§5.1.2）；
-- **统一上下文树**：fork 派生隔离子上下文，dispose 级联恢复（论文 §3.3.1）；
-- **组件生命周期**：两态（INACTIVE/ACTIVE）全同步（论文 §4.2 简化；惯性状态机为 P2）。
+- **时间维（可逆效应）**：每次上下文变更携带显式逆；运行时按 LIFO 累积、卸载时整体恢复
+  （论文 §3.1，Algorithm 1）；
+- **空间维（反应式协效应）**：类型化键 + realm 限定符与隔离派生（§5.1.2），以及反应式依赖声明——
+  满足即激活、撤退即排空、回归即重激活（Algorithm 3，Theorem 63）；
+- **统一上下文树**：`fork()` 派生隔离子上下文，`dispose()` 级联恢复（§3.3.1）；
+- **组件生命周期**：带惯性的四态 fiber 状态机——卸载等待飞行中激活落地、dependents 先于
+  providers 撤销（§4.2–4.3，Algorithm 4/5），含失败路由与环守卫；
+- **异步**：虚拟线程激活、可逆 spawn 任务、guard 协议（§4.3.2–4.3.3）；
+- **声明式加载器**：id 键控配置 diff 与事务性调和（§5.2.1，Algorithm 10，配置级）。
 
-### 1.2 本轮范围外（P2/P3）
+### 1.2 范围外（P3）
 
-声明式加载器与配置调和（§5.2.1）、HMR（§5.2.2）、惯性异步状态机（§4.3.3）、注解/代理注入（上游 mixin）、
-事件过滤器、线程安全、Spring/Quarkus/LangChain4j 集成、字节码级热替换（JVM ClassLoader 方案）。
+字节码级热模块替换（§5.2.2；自定义 ClassLoader / ModuleLayer 方案评估，参考 OSGi 与 pf4j 先例）、
+注解/代理式注入、生态集成（Spring、Quarkus、LangChain4j）。
 
 ---
 
 ## 2. 决策日志
 
-| # | 决策 | 内容 | 依据/理由 |
+| # | 决策 | 内容 | 理由 |
 |---|---|---|---|
-| D1 | 服务获取方式 | 显式 ctx.get(ServiceKey) / find 返回 Optional；注解注入在 P2 | 论文 §6.4：注解+编译期生成是 Proxy 中介的替代路径；P1 保持零依赖 |
-| D2 | 插件表示 | @FunctionalInterface Plugin.apply(Context) -> Disposable | 对应 fiber.apply；Java 惯用法 |
-| D3 | 事件模型 | 全同步分发；emit 当前上下文先行、沿父链上溯（子→根）；监听器抛异常向上传播、剩余监听器跳过 | 与上游一致；P2 虚拟线程异步 |
-| D4 | 命名 | groupId/包名 io.cordis4j；artifactId cordis4j-core；JPMS 模块 io.cordis4j.core | 检索确认无冲突；定稿不改 |
-| D5 | 服务键 | ServiceKey<T> = (Class<T> type, String qualifier)；qualifier 为 realm 一维投影；get(Foo.class) 为默认限定符糖 | 预留给 §6.2 同接口多提供者与 loader realm 的扩展点；T9/T10 固定行为 |
-| D6 | 异常体系 | CordisException（基类）→ NoSuchServiceException（含键与查找路径）/ InactiveAccessException（P2 声明校验启用）/ DisposeException（聚合清理失败） | 对齐上游 Algorithm 6 两类访问错误；T7 固定聚合语义 |
-| D7 | 生命周期 | 两态全同步；内部 Lifecycle 接缝（SimpleLifecycle 实现），P2 换惯性状态机 | 论文 §4.3.3 需异步任务句柄，P2 以虚拟线程重访 |
-| D8 | 线程模型 | P1 单线程，契约明文"未同步" | 先正确后并发 |
-| D9 | Service.start/stop | 显式标注为**扩展**（非论文语义）：活跃插件域内 provide 时 start()，域撤销时 stop() 逆序 | 不冒充论文语义；论文顺序保证由 T6 覆盖 |
-| D10 | 许可证/署名 | Cordis4j 以 MIT 发布；README 致谢 cordis 论文（cordiverse/paper）与参考实现 cordiverse/cordis、@deepseek-ai/cordis（代码仓库均 MIT）；论文仅引述、不断言其许可 | 上游代码全 MIT，无法律障碍 |
+| D1 | 服务访问 | 显式 ctx.get(ServiceKey) / find 返回 Optional；注解注入在 P3 | 论文 §6.4：注解 + 编译期生成是代理中介的认可替代；核心保持零依赖 |
+| D2 | 插件形态 | @FunctionalInterface Plugin.apply(Context) -> Disposable；apply 内的注册属于隐式效应域 | 对应论文 fiber.apply；Java 惯用形态 |
+| D3 | 事件模型 | 全同步分发；emit 先跑当前上下文，再沿父链到根（子→根）；监听器抛异常则传播且剩余跳过（D16 扩展分发语义） | 与上游一致；虚拟线程异步在 D15 |
+| D4 | 命名 | groupId/package io.cordis4j；artifactId cordis4j-core；JPMS 模块 io.cordis4j.core | 检索确认无冲突；冻结 |
+| D5 | 服务键 | ServiceKey<T> = (Class<T> type, String qualifier)；qualifier 是 realm 的一维投影；get(Foo.class) 是默认限定符糖 | 可行性评审的最重要修正：为论文 §6.2 多提供者与 loader realm 预留扩展点 |
+| D6 | 异常体系 | CordisException（基类）→ NoSuchServiceException（含键+查找路径）/ InactiveAccessException（声明校验，D13）/ DisposeException（suppressed 聚合）/ SupplyConflictException / CyclicDependencyException / DivertedException | 对齐上游 Algorithm 6 的两类访问失败与其余守卫信号 |
+| D7 | 生命周期 | 四态 fiber 状态机（INACTIVE/LOADING/ACTIVE/UNLOADING）；惯性表现为卸载等待落地（§7） | 论文 §4.2/§4.3.3 |
+| D8 | 线程（已被 D19 细化） | 核心同步起步；当前并发模型见 D19 | 先正确后并发 |
+| D9 | Service.start/stop | 显式标注为**扩展**（非论文语义）：活跃插件域内 provide 时 start()；域撤销时按提供逆序 stop() | 论文式的顺序由 T6/T12 覆盖 |
+| D10 | 许可与署名 | Cordis4j 为 MIT；README 致谢论文与参考实现 | 上游代码全部 MIT，无法律障碍 |
+| D11 | 反应式协效应 | ctx.inject(deps, effect) 声明 fiber（Algorithm 3）：全部依赖可解析时激活、被依赖绑定撤销时反应式卸载、可重激活；回调返回的 Disposable 并入 fiber 域（最先撤销） | 实现论文满足/通知/刷新；效应函数形态与 Plugin 对齐 |
+| D12 | 供给唯一性 | 两个不同活跃 fiber 不得供给同一 store 键（SupplyConflictException）；ambient 供给自由覆盖（管理员语义） | 论文 §4.2 供给集不相交，Java 侧快速失败 |
+| D13 | 声明中介 | 声明式 fiber 运行期间，get/find 只解析其声明的键与自供的键（InactiveAccessException，Algorithm 6）；普通插件不受限 | 上游 Proxy 中介访问校验的 Java 形态 |
+| D14 | 失败路由 | inject 激活失败回滚部分域、记录并记日志、永不重试、不传播（§4.3.4）；plugin() 失败保持传播（条款 6.7） | 论文失败语义的兄弟隔离 |
+| D15 | 异步 | pluginAsync 在虚拟线程上运行效应函数并等待落地（惯性）；spawn 运行长任务，句柄中断并 join（启动任务是可逆效应）；currentFiber() 暴露 guard（isDiverted/checkDiverted） | §4.3.2–4.3.3 的 Java 惯用形态；guard = retired 或 非(LOADING/ACTIVE) 或 声明不满足 |
+| D16 | 事件分发 | 父类型监听器接收子类型事件（isInstance）；可选每监听器过滤器；同上下文内严格按注册顺序（更新 D3） | Java 类层级取代上游字符串键 |
+| D17 | 拦截元数据 | 实现 InterceptMetadata 的元数据沿链从根向查询点合并，近端优先（论文右偏幺半群）；其他类型保持 nearest-wins | @@intercept 槽位的消费语义 |
+| D18 | 声明式加载器 | LoaderConfig/ComponentEntry 按 id 键控 diff；组件实例即版本（换实例即重载）；调和事务性（失败恢复上一配置）；dispose 按装载逆序 | 论文 §5.2.1 / Algorithm 10 的配置级形态；record 相等性是 Java 原生配置 diff |
+| D19 | 线程 | 注册表状态由内部锁保护，获取方向单一（fiber 注册表 → 各上下文 store → 域）；用户代码在锁外执行；provide 触发的反应式通知在该 provide 的监视器释放后运行 | 无锁环；长激活与 teardown（可能 join 任务）从不持有注册表监视器 |
+| D20 | 撤退顺序 | 卸载 fiber 先撤出其供给的全部键（排空全部 dependents，含仍在 LOADING 者——惯性的链式卸载），再 LIFO 撤销自身效应；被排空的 dependent 在其 teardown 中仍可解析该依赖 | 论文 L-Leave/L-Unload 与 Theorem 63 的精确实现 |
 
 ---
 
@@ -49,74 +64,94 @@
 包 io.cordis4j.core；实现类位于 io.cordis4j.core.internal（模块不导出）。
 
     public interface Disposable extends AutoCloseable
-        语义：效应之逆。dispose() 幂等（重复调用 no-op）；close() 委托 dispose()。
-        约定：所有返回 Disposable 的 API，其 dispose 可在任意时刻调用；调用后注册物即被撤销。
+        语义：效应之逆。dispose() 幂等；close() 委托 dispose()。
+        契约：任何返回 Disposable 的 API 可在任意时刻 dispose；dispose 即撤销该注册。
 
     public final class Disposables
-        none() -> Disposable：no-op 单例。
-        of(Runnable action) -> Disposable：首次 dispose 执行 action（至多一次），后续 no-op。
-        composite(Disposable... parts) -> Disposable：按参数顺序依次 dispose；某部分抛异常时收集并继续（语义同 DisposeException）。
+        none()：共享空操作单例。
+        of(Runnable)：首次 dispose 至多执行一次。
+        composite(Disposable...)：按参数序执行；失败收集为 DisposeException（suppressed）。
 
     public record ServiceKey<T>(Class<T> type, String qualifier)
-        语义：服务键 = 类型 × 限定符（realm 一维投影）。of(type) 等价于 of(type, "")。
-        不变式：type 非 null；qualifier 非 null（构造器紧凑构造自动 requireNonNull）。
+        语义：服务键 = 类型 × 限定符（realm 投影）。of(type) 即 of(type, "")。组件永不为 null。
 
     public interface Service（扩展，D9）
-        default void start() {}
-        default void stop() {}
-        语义：在活跃插件域内 provide 时立即 start()；域 dispose 时按注册逆序 stop()。仅当对象显式实现本接口时生效。
+        default void start() {} / default void stop() {}
+        语义：活跃插件域内 provide 立即 start()；域撤销按提供逆序 stop()。仅显式实现时生效。
 
     @FunctionalInterface public interface Plugin
         Disposable apply(Context ctx);
-        语义：apply 在隐式效应域内执行（论文 fiber.apply）；域内一切注册归该插件所有，
-              卸载时 LIFO 撤销。apply 返回的 Disposable 并入该域（惯常返回 Disposables.none()）。
-              apply 抛异常：已登记效应先 LIFO 撤销，异常再传播（论文 §4.3.4 Failure 简化）。
+        语义：apply 在隐式效应域内运行（论文 fiber.apply）；期间一切注册属于该插件，卸载时 LIFO 撤销。
+        apply 抛异常时先回滚已注册效应（§4.3.4）再传播，回滚失败挂为 suppressed。
+
+    @FunctionalInterface public interface AsyncPlugin
+        Disposable apply(Context ctx) throws Exception;
+        语义：同 Plugin，但运行在虚拟线程上（D15），允许阻塞与受检异常。
 
     public interface Context extends Disposable
-        —— 协效应（§5.1.2）——
-        <T> T get(ServiceKey<T> key)   // 沿树上溯（realm 判定）；未提供抛 NoSuchServiceException（含路径）
-        <T> T get(Class<T> type)       // = get(ServiceKey.of(type))
-        <T> Optional<T> find(ServiceKey<T> key)  // 可选查找；never throws
+        -- 协效应（§5.1.2）--
+        <T> T get(ServiceKey<T> key)            // 沿树解析（realm 感知）；失败抛 NoSuchServiceException（含路径）
+        <T> T get(Class<T> type)                // = get(ServiceKey.of(type))
+        <T> Optional<T> find(ServiceKey<T> key) // 可选查找；不抛
         <T> Optional<T> find(Class<T> type)
         <T> Disposable provide(ServiceKey<T> key, T service)
-            // 覆盖式绑定（同上游 set 语义）；返回撤销注册的 Disposable；被覆盖后旧 Disposable 变 no-op
-        <T> Disposable provide(T service)  // 键 = 具体类 + 默认限定符
+            // 覆盖语义：返回移除句柄；被覆盖的旧句柄变 no-op；key/服务类型不匹配立即失败（T23）
+        <T> Disposable provide(T service)       // 键 = 具体类 + 默认限定符
         <T> Context isolate(Class<T> type, String realm)
-            // 派生子上下文，仅覆盖该类型键的 realm 映射（§5.1.2 派生语义）；
-            // 返回的 Context 即该子上下文（Context 继承 Disposable），dispose 它 = 丢弃子上下文（隐式恢复，无显式逆）；
-            // 子上下文同时被登记为父的活动域效应 → 父卸载时级联丢弃
+            // 派生子上下文，仅重定向该类型的 realm 映射（§5.1.2 派生语义）；
+            // 返回的 Context 即子上下文（Context extends Disposable）——dispose 即整体丢弃
         <T> Disposable intercept(ServiceKey<T> key, Object metadata)
-            // @Experimental：P1 仅写入/查询每键拦截元数据表（§5.1.2 @@intercept 的数据结构部分）；
-            // 元数据的消费语义（如何调整绑定使用）在 P2 硬化
-        <T> Optional<Object> interceptOf(ServiceKey<T> key)
-            // 查询拦截元数据：沿树上溯，首中即返；无则 empty
+        <T> Optional<Object> interceptOf(ServiceKey<T> key)   // 沿链解析，见 D17
 
-        —— 效应（§5.1.1，Algorithm 1）——
+        -- 效应（§5.1.1，Algorithm 1）--
         EffectScope effect()
-            // 开启效应分组。惯用法：try (var fx = ctx.effect()) { fx.track(...); ... }
-            // close()/dispose() 按 LIFO 执行域内登记的逆；失败聚合为 DisposeException（T7）
+            // 打开效应组。惯用法：try (var fx = ctx.effect()) { fx.track(...); }
+            // 关闭/撤销按 LIFO；失败聚合为 DisposeException（T7）
 
-        —— 事件（效应实例，D3）——
+        -- 事件（注册即效应；D3/D16）--
         <E> Disposable on(Class<E> type, Consumer<E> listener)
+        <E> Disposable on(Class<E> type, Predicate<E> filter, Consumer<E> listener)
         <E> void emit(E event)
-            // 同步分发：本上下文监听器 → 父链 → 根（子 emit 触发祖先监听器；祖先 emit 不触子）
+            // 同步：先本上下文监听器，再沿父链到根（子 emit 触达祖先；祖先 emit 不触达子）
 
-        —— 空间（§3.3.1）——
-        Context fork()          // 派生子上下文；子 dispose 注册为父活动域效应 → 父卸载自动级联子
-        Context root()          // 根上下文
+        -- 空间（§3.3.1）--
+        Context fork()   // 派生子上下文；子的 dispose 是活跃域的效应
+        Context root()
 
-        —— 组合入口（Algorithm 4 的 Java 形态）——
+        -- 组合入口（Algorithm 4 的 Java 形态）--
         Disposable plugin(Plugin plugin)
-        Disposable plugin(Object... services)   // 便捷：仅 provide 各服务的插件
-        Logger logger(String name)             // 最小 Logger + java.util.logging 适配
+        Disposable plugin(Object... services)   // 便捷：只提供服务的插件
+        Disposable pluginAsync(AsyncPlugin)     // 虚拟线程；等待激活落地（D15）
+        Disposable spawn(Runnable task)         // 可逆任务：句柄中断并 join
+        Optional<FiberHandle> currentFiber()    // guard：isDiverted / checkDiverted
+        Logger logger(String name)
+
+        -- 反应式协效应（D11，Algorithm 3）--
+        Disposable inject(Set<ServiceKey<?>> deps, Function<Context, Disposable> onSatisfied)
+        <T> Disposable inject(ServiceKey<T> dep, BiFunction<Context, T, Disposable> onSatisfied)
+        <T> Disposable inject(Class<T> dep, BiFunction<Context, T, Disposable> onSatisfied)
+        <T1,T2> Disposable inject(ServiceKey<T1>, ServiceKey<T2>,
+                                  TriFunction<Context, T1, T2, Disposable> onSatisfied)
+            // 满足即激活；撤销即反应式卸载（先排空）；未退役未失败时可重激活；
+            // 激活失败路由至卸载
 
     public final class Contexts
         static Context create()  // 创建根上下文
 
-    public class CordisException extends RuntimeException          // 体系基类
-    public class NoSuchServiceException extends CordisException    // 携带 ServiceKey 与查找路径
-    public class InactiveAccessException extends CordisException   // P1 仅定义类型，P2 声明校验时抛出
-    public class DisposeException extends CordisException          // suppressed 收集全部清理失败
+    -- 声明式加载器（D18，§5.2.1 / Algorithm 10）--
+    record ComponentEntry(String id, Plugin component)   // 实例身份即版本
+    record LoaderConfig(List<ComponentEntry> entries)    // id 唯一
+    final class Loader implements Disposable             // id 键控 diff，事务性调和
+
+    public class SupplyConflictException extends CordisException   // D12
+    public class CyclicDependencyException extends CordisException // 环守卫（Progress 定理）
+    public class DivertedException extends CordisException         // guard 信号（D15）
+    public interface InterceptMetadata { InterceptMetadata merge(InterceptMetadata nearer); } // D17
+
+    public class CordisException extends RuntimeException          // 基类
+    public class NoSuchServiceException extends CordisException    // 携带 ServiceKey + 查找路径
+    public class InactiveAccessException extends CordisException   // 声明校验（Algorithm 6）
+    public class DisposeException extends CordisException          // suppressed = 全部清理失败
 
 ---
 
@@ -124,69 +159,109 @@
 
 | Cordis4j | 论文构造 | 上游 TS |
 |---|---|---|
-| provide / get | set/get（Algorithm 2：k → ρ(k) → σ 两层解析） | ctx.provide(name, value) / ctx.get(name) |
-| ServiceKey(type, qualifier) | 键 k 与 realm 符号 ρ(k) 的 P1 投影 | 字符串键 + ctx.isolate(name, realm) |
-| effect().track(d) | ctx.effect：逆 prepend 进累积器（LIFO） | ctx.effect(callback) |
-| plugin(Plugin) | use/instantiation（Algorithm 4：父效应携带子卸载） | ctx.plugin(plugin) |
-| fork() | 上下文树分叉（§3.3.1：子可见父、父不可见子） | ctx.fork() |
-| dispose() | 撤回（§4.3.1）+ 累积器恢复 | fiber dispose |
-| isolate(type, realm) | §5.1.2 派生子上下文覆盖 realm 表 | ctx.isolate(name, realm) |
-| intercept(key, meta) | §5.1.2 @@intercept 数据结构 | ctx.intercept(name, config) |
-| on/emit | 事件=效应实例；沿树冒泡 | ctx.on / ctx.emit |
+| provide / get | set/get（Algorithm 2：两层解析 k → rho(k) → sigma） | ctx.provide(name, value) / ctx.get(name) |
+| ServiceKey(type, qualifier) | 键 k 与 realm 符号 rho(k) 的投影 | 字符串键 + ctx.isolate(name, realm) |
+| effect().track(d) | ctx.effect：逆前置于累积器（LIFO） | ctx.effect(callback) |
+| plugin(Plugin) / pluginAsync | use/实例化（Algorithm 4：父效应携带子卸载） | ctx.plugin(plugin) |
+| inject(...) | 依赖声明 d + satisfaction/notify/refresh（Algorithm 3） | ctx.inject(deps, callback) |
+| withdraw（内置） | L-Leave/L-Unload 排空（Theorem 63） | fiber 退休驱动 |
+| spawn / currentFiber | create_task / guard（§4.3.2–4.3.3） | fiber.inertia |
+| fork() | 上下文树派生（§3.3.1：子见父，反向不可） | ctx.fork() |
+| dispose() | 撤退（§4.3.1）+ 累积器恢复 | fiber dispose |
+| isolate(type, realm) | §5.1.2 派生子上下文重写 realm 表 | ctx.isolate(name, realm) |
+| intercept(key, meta) + InterceptMetadata | §5.1.2 @@intercept 数据结构 + 元数据幺半群 | ctx.intercept(name, config) |
+| on / emit | 事件即效应；树形上浮 | ctx.on / ctx.emit |
+| Loader.reconcile | §5.2.1 声明式调和（Algorithm 10，配置级） | loader 插件 |
 
 ---
 
 ## 5. 偏离与扩展声明（与上游 TS 的显式差异）
 
-1. 键制：上游为字符串键 + 每类型 module augmentation；Cordis4j 为 ServiceKey(Class, qualifier)。qualifier 承担 realm 角色，P2 的 loader 多 realm（§5.2.1）在 ServiceKey 上扩展而非换键制。
-2. 获取失败：上游 ctx.get(key)（store 查询）从不失败，失败的是 Proxy 属性访问（INACTIVE_ACCESS / UNDECLARED_ACCESS）；Cordis4j get() 抛 NoSuchServiceException、find() 返回 Optional，InactiveAccessException 预留给 P2 声明校验。
-3. 生命周期：上游为惯性异步状态机（RELOADING/UNLOADING/FAILED）；P1 为两态同步 SimpleLifecycle，Lifecycle 接缝保证 P2 可替换。
-4. 异步：上游效应与迁移均为异步（create_task）；P1 全同步，P2 以虚拟线程重访。
-5. Service.start/stop：上游服务为值、生命周期在 fiber 层；Cordis4j 的 Service 钩子为显式扩展（D9），不构成论文语义的一部分。
-6. 属性访问：上游 ctx[key] 经 Proxy 中介并强制声明校验（Algorithm 6）；Cordis4j 无动态属性，P2 以 @Inject 注解 + 编译期/代理生成实现同等中介。
-7. 事件过滤器（ctx.filter）：P2。
-8. Logger/logger(name)：为对齐上游 built-in service 提供的最小化版本（java.util.logging 适配），不引入第三方依赖。
+1. 键制：上游字符串键 + module augmentation；Cordis4j 用 ServiceKey(Class, qualifier)。qualifier
+   扮演 realm；loader 多 realm 支持扩展 ServiceKey 而非替换键制。
+2. 查找失败：上游 ctx.get(key)（store 查询）从不失败——失败的是 Proxy 属性访问
+   （INACTIVE_ACCESS / UNDECLARED_ACCESS）；Cordis4j get() 抛 NoSuchServiceException、find() 返回
+   Optional，InactiveAccessException 承载 Algorithm 6 的声明校验（D13）。
+3. 生命周期：同步内核驱动四态 fiber 状态机（INACTIVE / LOADING / ACTIVE / UNLOADING，§4.2）；
+   惯性表现为卸载等待落地，含仍在 LOADING 的 dependents 的链式卸载（D20）。
+4. 异步：上游效应与迁移是异步的（create_task）；Cordis4j 同时提供同步内核与虚拟线程形态
+   （pluginAsync / spawn，D15）。Algorithm 1 的效应迭代器以 guard 协议
+   （currentFiber / isDiverted）呈现，而非语言级生成器。
+5. Service.start/stop：上游服务即值、生命周期在 fiber 层；Cordis4j 的 Service 钩子是显式扩展
+   （D9），非论文语义。
+6. 属性访问：上游 ctx[key] 由 Proxy 中介；Cordis4j 改为中介声明式 fiber 的 get/find（D13）；
+   注解式注入仍为后续工作。
+7. 事件过滤器：以 Context.on(type, filter, listener) 的每监听器谓词提供（D16）；不镜像上游的
+   声明式过滤器注册表。
+8. Logger/logger(name)：与上游内建日志服务最小对齐（java.util.logging 适配）的零依赖实现。
+9. 反应式重激活复用同一 fiber（每次激活使用全新效应域）；论文的 reload 同样保持 fiber 身份，
+   但上游 TS 会重建插件实例——因此回调必须可安全重跑。
 
 ---
 
 ## 6. 边界语义（逐条由测试固定）
 
-1. dispose 幂等：重复 dispose no-op。
-2. dispose 重入：某逆的执行过程中再次 dispose 同一域/上下文 → 第二次调用 no-op。
-3. 已 dispose 上下文：其 get/emit/plugin/fork/provide 抛 IllegalStateException。
-4. provide 覆盖：同键重复 provide 覆盖旧绑定；旧 Disposable 变 no-op；被覆盖服务若实现 Service 则其 stop() 在覆盖时按扩展语义执行。
-5. null 拒绝：全部公共 API 参数 Objects.requireNonNull。
-6. 监听器异常：emit 中某监听器抛异常 → 传播给 emit 调用者，剩余监听器（含祖先链）不再投递。
-7. plugin.apply 异常：已登记效应 LIFO 撤销后异常传播。
-8. 查找路径：get 沿树上溯；每层先查 realmOverrides[type]：有且 ≠ key.qualifier 时跳过该层（隔离），否则查该层服务库。
-9. isolate 派生：子上下文继承父一切，仅覆盖指定 type 的 realm；dispose 子即整体丢弃。
-10. fork 级联：子上下文的 dispose 注册为父的活动域效应；父 dispose 时子先于父的早先效应被撤销（LIFO 跨 fiber 树，T6）。
-11. 事件冒泡方向：仅子→祖先；同上下文监听器按注册顺序同步投递。
-12. 单线程：全部操作非线程安全，跨线程共享上下文属未定义行为（D8）。
+1. dispose 幂等：重复 dispose 是 no-op。
+2. dispose 重入：撤销过程中再 dispose 同一域/上下文是 no-op。
+3. 已 dispose 的上下文：get/emit/plugin/fork/provide/effect/isolate 抛 IllegalStateException。
+4. provide 覆盖：同键再次 provide 替换绑定；旧句柄变 no-op；被替换服务的 stop() 立即执行（扩展 D9）。
+5. null 拒绝：全部公共 API 以 NullPointerException 拒绝 null（requireNonNull）。
+6. 监听器失败：抛异常的监听器将异常传播给 emit 调用者；其余监听器（含祖先的）不再调用。
+7. plugin.apply 失败：已注册效应 LIFO 回滚后异常传播。
+8. 查找路径：get 沿树向上；每层查询该类型的 realm 覆盖——存在且不同于键限定符则跳过该层，
+   否则查询该层 store。
+9. isolate 派生：子继承父的一切，仅给定类型的 realm 被重写；dispose 子即整体丢弃。
+10. fork 级联：子的 dispose 注册为父活跃域的效应；父 dispose 时子先于父更早效应撤销（跨 fiber
+    树 LIFO，T6）。
+11. 事件上浮方向：仅子→祖先；同上下文内监听器按注册顺序执行。
+12. 并发：注册表状态由内部锁保护（D19）；用户回调不得阻塞于其他需要树状态的线程（文档声明；
+    运行时自身从不如此）。
+13. 反应式生命周期：inject fiber 满足即激活；被依赖绑定撤销即反应式卸载；声明再次满足即重激活；
+    退役或失败的 fiber 永不重激活（T11、T15）。
+14. 排空顺序：卸载 provider 先撤出其供给；每个 dependent——含仍在 LOADING 者——先于 provider
+    自身任何效应撤销而卸载，且各 dependent 的 teardown 仍可解析被撤绑定（T12、D20）。
+15. 供给唯一性：第二个活跃 fiber 供给已占 store 键抛 SupplyConflictException 且其插件注册回滚；
+    ambient provide 自由覆盖（T13）。
+16. 声明中介：声明式 fiber 内 get/find 只解析其声明键与自供键；事件不受中介（T14）。
+17. guard：spawn 的任务继承其发起者的 fiber；fiber 退役、卸载中/非活跃、或声明停止可解析后
+    isDiverted 为真（T20）。
+18. pluginAsync 等待激活落地；受检激活失败以 CordisException 包装传播；spawn 任务句柄在域卸载时
+    中断并 join（T19）。
+19. 事件：父类型监听器接收子类型事件；每监听器过滤器先于监听器执行（T17）。
+20. 拦截元数据：全链 InterceptMetadata 从根向查询点合并（冲突近端胜）；混合类型保持
+    nearest-wins（T18）。
+21. Loader：reconcile 装载新 id、卸载消失 id、重载换实例条目（实例身份即版本）；失败的 reconcile
+    恢复上一配置；dispose 按装载逆序卸载（T21）。
+22. 重复 provide：同实例同键 provide 两次，第一个移除句柄为 no-op；当前句柄才移除绑定（T23）。
 
 ---
 
-## 7. 生命周期模型（P1）
+## 7. 生命周期模型
 
-- 状态：INACTIVE / ACTIVE（两态）。
-- 迁移：域创建 → 执行 apply（=LOADING 的同步化）→ ACTIVE；dispose → 逆序撤销 → INACTIVE。
-- 接缝：internal.Lifecycle { void dispose(); }，P1 唯一实现 SimpleLifecycle；
-  P2 以惯性状态机实现替换（对应论文 Algorithm 5 的 refresh/reload/unload 及 fiber.inertia）。
+- fiber 状态：INACTIVE / LOADING / ACTIVE / UNLOADING（论文 §4.2，同步形态）。
+- 迁移：activate 在全新效应域内运行效应函数（LOADING → ACTIVE）；unload 先撤出供给（排空
+  dependents，链式贯穿仍在 LOADING 者），再 LIFO 撤销域，并为可能的再次激活换上全新域；
+  激活期失败路由至卸载并冻结 fiber（failed，永不重试）。
+- 惯性：unload 遇 LOADING fiber 先等激活落地（§4.3.3）；用户代码始终在注册表监视器之外运行（D19）。
+- 异步：pluginAsync/spawn 在虚拟线程上承载激活与长任务；任务句柄是可逆效应（中断 + join）。
 
 ---
 
 ## 8. 演进策略
 
-- 语义版本化：0.x 期间允许破坏性变更，但必须更新本契约 + 决策日志 + CHANGELOG。
-- 稳定锚点：ServiceKey 形态、Disposable/EffectScope 契约、异常体系、fork 级联语义为跨 P2/P3 稳定接口。
-- P2 入口（已预留）：声明式 inject + Algorithm 3/5 排空顺序、Lifecycle 惯性实现、注解注入、事件过滤、虚拟线程异步。
-- P3 入口：字节码级 HMR（自定义 ClassLoader/ModuleLayer 评估，参考 OSGi/pf4j 先例）。
+- 语义化版本：0.x 期间允许破坏性变更，但每次必须更新本契约、决策日志与 CHANGELOG。
+- 跨 P3 的稳定锚点：ServiceKey 形态、Disposable/EffectScope 契约、异常体系、fork 级联语义、
+  排空顺序（D20）。
+- P3 入口：字节码级 HMR（自定义 ClassLoader / ModuleLayer 评估，参考 OSGi 与 pf4j 先例）、
+  注解式注入、生态集成（Spring、Quarkus、LangChain4j）。
 
 ---
 
 ## 9. 参考
 
-- 论文：A Programming Paradigm for Spatiotemporal Composability，https://github.com/cordiverse/paper
-- 上游：https://github.com/cordiverse/cordis ；@deepseek-ai/cordis@4.0.1（vendored in deepseek-harness）
-- 可行性评估（已归档）：docs/design/cordis4j-feasibility-review.md
-- Koishi 可逆插件设计：https://koishi.chat/zh-CN/cookbook/design/disposable.html
+- 论文：A Programming Paradigm for Spatiotemporal Composability,
+  https://github.com/cordiverse/paper
+- 上游：https://github.com/cordiverse/cordis ；@deepseek-ai/cordis@4.0.1（vendored in
+  deepseek-harness）
+- 可行性评审（已归档）：docs/design/cordis4j-feasibility-review.md
+- Koishi 的可逆插件设计：https://koishi.chat/zh-CN/cookbook/design/disposable.html
