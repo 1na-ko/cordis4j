@@ -28,6 +28,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   retract/GC-eviction, isolation, and model conflict with the fiber paradigm; recommends a
   zero-dependency custom ClassLoader engine as stage 1 and ModuleLayer as an optional stage 2,
   rejects OSGi and pf4j.
+- `cordis4j-hmr` (new module): bytecode-level hot module replacement (paper Section 5.2.2, stage 1
+  of the evaluation). `BytecodePluginLoader` loads a plugin jar into its own class loader (unique
+  `Plugin` implementation discovered or named explicitly); `PluginHandle` observes collection and
+  closes the loader on detach (the jar's file handle is released immediately, so jars can be
+  rewritten on Windows); `PluginClassRegistry` evicts and observes entries by id;
+  `HotReloadingLoader` bridges the core `Loader`'s transactional reconcile - a reload re-imports
+  the jar, swaps the stale entry's fiber, and rolls back on failure, after which the replaced code
+  becomes garbage-collectable (T26).
+
+### Fixed
+
+- Reference discipline of fiber handles (core): a disposed plugin handle now releases its fiber
+  reference, so a retired fiber - and with it the plugin instance and, in a bytecode-level reload,
+  its class loader - becomes collectable even while the ambient scope that tracked the handle
+  still lives. Previously the handle's closure pinned the fiber for the context's lifetime, which
+  leaked every plugin ever unloaded from a long-lived context. Behavior is unchanged; the handle
+  is a static class because anonymous classes capture constructor parameters into synthetic final
+  fields that would re-pin the fiber. Regression test: `PluginUnloadReleaseTest`.
 
 ## [0.2.0] - 2026-08-14
 
