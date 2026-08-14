@@ -40,7 +40,7 @@
 | D2 | 插件形态 | @FunctionalInterface Plugin.apply(Context) -> Disposable；apply 内的注册属于隐式效应域 | 对应论文 fiber.apply；Java 惯用形态 |
 | D3 | 事件模型 | 全同步分发；emit 先跑当前上下文，再沿父链到根（子→根）；监听器抛异常则传播且剩余跳过（D16 扩展分发语义） | 与上游一致；虚拟线程异步在 D15 |
 | D4 | 命名 | groupId/package io.cordis4j；artifactId cordis4j-core；JPMS 模块 io.cordis4j.core | 检索确认无冲突；冻结 |
-| D5 | 服务键 | ServiceKey<T> = (Class<T> type, String qualifier)；qualifier 是 realm 的一维投影；get(Foo.class) 是默认限定符糖 | 可行性评审的最重要修正：为论文 §6.2 多提供者与 loader realm 预留扩展点 |
+| D5 | 服务键 | ServiceKey<T> = (Class<T> type, String qualifier)；qualifier 是 realm 的一维投影；get(Foo.class) 是默认限定符糖 | 为论文 §6.2 多提供者与 loader realm 预留扩展点 |
 | D6 | 异常体系 | CordisException（基类）→ NoSuchServiceException（含键+查找路径）/ InactiveAccessException（声明校验，D13）/ DisposeException（suppressed 聚合）/ SupplyConflictException / CyclicDependencyException / DivertedException | 对齐上游 Algorithm 6 的两类访问失败与其余守卫信号 |
 | D7 | 生命周期 | 四态 fiber 状态机（INACTIVE/LOADING/ACTIVE/UNLOADING）；惯性表现为卸载等待落地（§7） | 论文 §4.2/§4.3.3 |
 | D8 | 线程（已被 D19 细化） | 核心同步起步；当前并发模型见 D19 | 先正确后并发 |
@@ -263,5 +263,4 @@
   https://github.com/cordiverse/paper
 - 上游：https://github.com/cordiverse/cordis ；@deepseek-ai/cordis@4.0.1（vendored in
   deepseek-harness）
-- 可行性评审（已归档）：docs/design/cordis4j-feasibility-review.md
 - Koishi 的可逆插件设计：https://koishi.chat/zh-CN/cookbook/design/disposable.html
