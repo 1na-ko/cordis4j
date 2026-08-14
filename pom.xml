@@ -34,7 +34,7 @@
 
   <properties>
     <!-- CI-friendly versioning: one property drives every module's version. -->
-    <revision>0.1.0</revision>
+    <revision>0.1.1-SNAPSHOT</revision>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <maven.compiler.release>21</maven.compiler.release>
