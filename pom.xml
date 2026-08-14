@@ -47,7 +47,7 @@
     <maven.source.version>3.3.1</maven.source.version>
     <maven.exec.version>3.5.0</maven.exec.version>
     <jacoco.version>0.8.12</jacoco.version>
-    <spotless.version>2.44.3</spotless.version>
+    <spotless.version>3.9.0</spotless.version>
   </properties>
 
   <build>
