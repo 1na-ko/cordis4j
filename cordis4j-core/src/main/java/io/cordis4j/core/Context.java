@@ -5,7 +5,11 @@
 package io.cordis4j.core;
 
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Predicate;
 
 /**
  * The unified context of the paradigm (paper, Section 3.3.1): carries the revertible-effect
@@ -200,6 +204,20 @@ public interface Context extends Disposable {
   <E> Disposable on(Class<E> type, Consumer<E> listener);
 
   /**
+   * Registers a filtered synchronous listener: the listener runs only when {@code filter} accepts
+   * the event. Filtering happens before dispatch, per listener.
+   *
+   * @param <E> the event type
+   * @param type the event type
+   * @param filter the predicate an emitted event must satisfy, never null
+   * @param listener the listener
+   * @return a disposable that unregisters the listener
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if any argument is null
+   */
+  <E> Disposable on(Class<E> type, Predicate<E> filter, Consumer<E> listener);
+
+  /**
    * Emits an event synchronously to this context and then to each ancestor up to the root.
    *
    * <p>If a listener throws, the exception propagates to the caller and the remaining listeners are
@@ -258,6 +276,113 @@ public interface Context extends Disposable {
    * @throws NullPointerException if {@code services} or any element is null
    */
   Disposable plugin(Object... services);
+
+  /**
+   * Applies a plugin whose effect function may block, on a virtual thread (paper, Section 4.3.3,
+   * asynchrony). The call waits for the activation to land (inertia): it returns once {@code apply}
+   * completed, or rethrows its failure with any reversion failures attached as suppressed
+   * exceptions.
+   *
+   * <p>Long-lived work started by {@code apply} should run through {@link #spawn} so that unloading
+   * the plugin interrupts and joins it - starting a task is an effect whose inverse is stopping it.
+   *
+   * @param plugin the plugin to apply
+   * @return a disposable that unloads the plugin, joining its spawned tasks first
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code plugin} is null
+   */
+  Disposable pluginAsync(AsyncPlugin plugin);
+
+  /**
+   * Runs a long-lived task on the tree's virtual-thread executor and returns its handle as a
+   * tracked effect of the enclosing scope: disposing the handle interrupts the task and waits for
+   * it to land, and an enclosing plugin domain does so automatically when it unloads.
+   *
+   * <p>The task may poll {@link #currentFiber()} and check diversion to stop early when its plugin
+   * is unloaded. A failing task is reported to the {@code io.cordis4j.core.task} logger; its
+   * failure never propagates to sibling tasks.
+   *
+   * @param task the task to run, never null
+   * @return a disposable that interrupts and joins the task
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code task} is null
+   */
+  Disposable spawn(Runnable task);
+
+  /**
+   * Returns the fiber executing on this thread, if any: the guard of the paper's effect iterator
+   * (Section 4.3.2). Code inside a plugin or an {@code inject} callback can poll diversion and stop
+   * early, letting the runtime revert only the effects accumulated so far.
+   *
+   * @return the current fiber's handle, or empty outside any fiber
+   */
+  Optional<FiberHandle> currentFiber();
+
+  // ── Reactive coeffects (paper, Section 3.2.2 and Algorithm 3) ────────────
+
+  /**
+   * Declares a reactive dependency (paper Algorithm 3): the fiber activates - running {@code
+   * onSatisfied} inside its own effect domain - as soon as every key in {@code dependencies}
+   * resolves from this context, and unloads reactively when a binding it relies on is withdrawn,
+   * with the drain guarantee of Theorem 63 (its teardown still resolves the dependency).
+   *
+   * <p>While activated, the fiber's service lookups are checked against its declaration (Algorithm
+   * 6): resolving a key outside {@code dependencies} and the keys the fiber itself supplies throws
+   * {@link InactiveAccessException}. An activation failure is routed to unload (paper Section
+   * 4.3.4): the fiber's partial effects are reverted, the failure is recorded and logged, and the
+   * fiber never retries; the failure does not propagate to the caller. Disposing the returned
+   * disposable retires the fiber permanently.
+   *
+   * @param dependencies the keys the fiber requires
+   * @param onSatisfied the effect function run on activation, and again on re-activation; its
+   *     returned disposable (nullable) joins the fiber's domain as the first-reverted cleanup
+   * @return a disposable that retires and unloads the fiber
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code dependencies}, any element, or {@code onSatisfied} is
+   *     null
+   */
+  Disposable inject(Set<ServiceKey<?>> dependencies, Function<Context, Disposable> onSatisfied);
+
+  /**
+   * Declares a single-dependency fiber with the resolved value handed to the effect function.
+   *
+   * @param <T> the dependency type
+   * @param dependency the required key
+   * @param onSatisfied the effect function; its returned disposable (nullable) joins the domain
+   * @return a disposable that retires and unloads the fiber
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code dependency} or {@code onSatisfied} is null
+   */
+  <T> Disposable inject(ServiceKey<T> dependency, BiFunction<Context, T, Disposable> onSatisfied);
+
+  /**
+   * Declares a single-dependency fiber under the default qualifier.
+   *
+   * @param <T> the dependency type
+   * @param dependency the required type
+   * @param onSatisfied the effect function; its returned disposable (nullable) joins the domain
+   * @return a disposable that retires and unloads the fiber
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code dependency} or {@code onSatisfied} is null
+   */
+  <T> Disposable inject(Class<T> dependency, BiFunction<Context, T, Disposable> onSatisfied);
+
+  /**
+   * Declares a two-dependency fiber with both resolved values handed to the effect function.
+   *
+   * @param <T1> the first dependency type
+   * @param <T2> the second dependency type
+   * @param first the first required key
+   * @param second the second required key
+   * @param onSatisfied the effect function; its returned disposable (nullable) joins the domain
+   * @return a disposable that retires and unloads the fiber
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if any argument is null
+   */
+  <T1, T2> Disposable inject(
+      ServiceKey<T1> first,
+      ServiceKey<T2> second,
+      TriFunction<Context, T1, T2, Disposable> onSatisfied);
 
   /**
    * Returns a named logger (aligned with the upstream built-in logger service).
