@@ -39,8 +39,8 @@ Run `mvn spotless:apply` before committing Java changes.
   version wins.
 - When a canonical English document changes, update its Chinese translation in the same PR - or
   explicitly mark the translation as outdated. Never leave a stale translation unmarked.
-- `docs/` is the source of current truth: process documents (assessments, drafts) belong in
-  `docs/design/` with an archive note; archived documents are exempt from translation.
+- `docs/` is the source of current truth for users; internal working documents and
+  assessments stay out of the public repository.
 - Third-party documents are cited by link, never vendored into the repository.
 
 ## Code of Conduct

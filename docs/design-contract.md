@@ -50,7 +50,7 @@ ecosystem integrations (Spring, Quarkus, LangChain4j).
 | D2 | Plugin shape | @FunctionalInterface Plugin.apply(Context) -> Disposable; registrations during apply belong to an implicit effect scope | Mirrors the paper's fiber.apply; Java idiom |
 | D3 | Event model | Fully synchronous dispatch; emit runs the current context first, then walks the parent chain (child-to-root); a throwing listener propagates and the remaining listeners are skipped (documented) | Matches upstream; virtual-thread asynchrony in P2 |
 | D4 | Naming | groupId/package io.cordis4j; artifactId cordis4j-core; JPMS module io.cordis4j.core | Verified conflict-free; frozen |
-| D5 | Service keys | ServiceKey<T> = (Class<T> type, String qualifier); the qualifier is a one-dimensional projection of the realm; get(Foo.class) is the default-qualifier sugar | **The most important correction from the feasibility review**: reserves the extension point for paper Section 6.2 multi-provider services and loader realms, avoiding P2 rework |
+| D5 | Service keys | ServiceKey<T> = (Class<T> type, String qualifier); the qualifier is a one-dimensional projection of the realm; get(Foo.class) is the default-qualifier sugar | Reserves the extension point for paper Section 6.2 multi-provider services and loader realms, avoiding rework |
 | D6 | Exception taxonomy | CordisException (base) -> NoSuchServiceException (key + lookup path) / InactiveAccessException (declaration checks, D13) / DisposeException (suppressed aggregation) / SupplyConflictException / CyclicDependencyException / DivertedException | Aligns with the two access failures of upstream Algorithm 6 and the remaining guard signals; T7 fixes the aggregation semantics |
 | D7 | Lifecycle | Four-state fiber machine (INACTIVE/LOADING/ACTIVE/UNLOADING); inertia manifests as unload waiting for landing (Section 7) | Paper Sections 4.2/4.3.3 |
 | D8 | Threading (refined by D19) | The core started synchronous; the current concurrency model is D19 | Correct first, concurrent later |
@@ -311,5 +311,4 @@ by the module).
 
 - Paper: A Programming Paradigm for Spatiotemporal Composability, https://github.com/cordiverse/paper
 - Upstream: https://github.com/cordiverse/cordis ; @deepseek-ai/cordis@4.0.1 (vendored in deepseek-harness)
-- Feasibility review (archived): docs/design/cordis4j-feasibility-review.md
 - Koishi's reversible-plugin design: https://koishi.chat/zh-CN/cookbook/design/disposable.html
