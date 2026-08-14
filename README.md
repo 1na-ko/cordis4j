@@ -60,6 +60,8 @@ disappear, or are replaced.
 - `cordis4j-core` — zero-dependency core library (JPMS module `io.cordis4j.core`): effects,
   reactive coeffects, the fiber lifecycle, virtual-thread asynchrony, and the declarative loader.
 - `cordis4j-demo` — end-to-end demos.
+- `cordis4j-langchain4j` — LangChain4j tool bridge: session tools that load, hot-unload, and swap
+  with their plugins (langchain4j-core only; no model provider, runs offline).
 
 ## Feature map (paper → Cordis4j)
 
@@ -77,6 +79,7 @@ disappear, or are replaced.
 | Isolation realms + interception metadata monoid (§5.1.2) | ✅ | `isolate`, `InterceptMetadata` |
 | Declarative loader, id-keyed diff, transactional reload (§5.2.1, Alg. 10) | ✅ | `Loader` |
 | Bytecode-level hot module replacement (§5.2.2) | 🅿 P3 | ClassLoader/ModuleLayer evaluation |
+| LangChain4j tool bridge (ecosystem) | ✅ | `CordisToolRegistry` in `cordis4j-langchain4j` |
 
 ## Quickstart & demos
 
@@ -98,18 +101,22 @@ mvn -pl cordis4j-demo exec:java
 
 Any of the others with `-Dexec.mainClass=io.cordis4j.demo.<DemoName>`.
 
+`cordis4j-langchain4j` ships `SessionToolDemo` (agent tools that load, hot-unload, and swap
+mid-conversation); run it with `mvn -pl cordis4j-langchain4j exec:java`.
+
 ## Build & quality gates
 
 ```console
-mvn verify   # enforcer + spotless + tests (T1-T24, 77 tests) + jacoco (>= 85%) + javadoc + dependency analysis
+mvn verify   # enforcer + spotless + tests (T1-T25, 85 tests) + jacoco (>= 85%) + javadoc + dependency analysis
 ```
 
 ## Roadmap
 
 - **P3** — compile-time annotation processing for injection (the runtime-reflection form has
   landed: `@Inject` / `Injects`), bytecode-level hot module replacement (custom ClassLoader /
-  ModuleLayer evaluation, following the OSGi and pf4j precedents), and ecosystem integrations
-  (Spring, Quarkus, LangChain4j).
+  ModuleLayer evaluation, following the OSGi and pf4j precedents), and the remaining ecosystem
+  integrations (Spring, Quarkus). The LangChain4j integration has landed as the separate module
+  `cordis4j-langchain4j`.
 
 ## Contributing
 

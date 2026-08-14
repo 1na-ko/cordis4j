@@ -29,7 +29,8 @@
 ### 1.2 范围外（P3）
 
 字节码级热模块替换（§5.2.2；自定义 ClassLoader / ModuleLayer 方案评估，参考 OSGi 与 pf4j 先例）、
-注入的编译期注解处理（运行时反射形态已落地为 D21）、生态集成（Spring、Quarkus、LangChain4j）。
+注入的编译期注解处理（运行时反射形态已落地为 D21）、其余生态集成（Spring、Quarkus）。
+LangChain4j 工具桥接已落地为独立模块（cordis4j-langchain4j），处于本核心契约之外。
 
 ---
 
@@ -269,6 +270,8 @@
   注入的编译期注解处理、生态集成（Spring、Quarkus、LangChain4j）。
 - v2.1 已落地：运行时反射注解式注入——`Injects.injectFields` 将 `@Inject` 字段装配为一个
   反应式声明（D21、T24）。
+- 生态（模块级，处于本核心契约之外；不追加决策条目）：cordis4j-langchain4j 将会话上下文的
+  `CordisTool` 服务暴露为遵循反应式协效应生命周期的 LangChain4j 工具（T25）。
 
 ---
 

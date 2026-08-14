@@ -38,8 +38,9 @@ of the paper's Sections 3-5):
 
 Bytecode-level hot module replacement (Section 5.2.2; custom ClassLoader / ModuleLayer
 evaluation following the OSGi and pf4j precedents), compile-time annotation processing for
-injection (the runtime-reflection form landed as D21), and ecosystem integrations (Spring,
-Quarkus, LangChain4j).
+injection (the runtime-reflection form landed as D21), and the remaining ecosystem integrations
+(Spring, Quarkus). The LangChain4j tool bridge landed as a separate module
+(cordis4j-langchain4j) and lives outside this core contract.
 
 ---
 
@@ -320,6 +321,9 @@ by the module).
   (D11-D20).
 - Landed since (v2.1): runtime-reflection annotation injection - `@Inject` fields assembled by
   `Injects.injectFields` into one reactive declaration (D21, T24).
+- Ecosystem (module-level, outside this core contract; no decision-log entry): cordis4j-langchain4j
+  exposes `CordisTool` services of a session context as LangChain4j tools that follow the
+  reactive-coeffect lifecycle (T25).
 - Remaining: compile-time annotation processing for injection, and bytecode-level HMR (custom
   ClassLoader / ModuleLayer evaluation, following the OSGi and pf4j precedents).
 

@@ -53,6 +53,8 @@ db.dispose();                                       // → dependents 先排空�
 - `cordis4j-core` - 零依赖核心库（JPMS 模块 `io.cordis4j.core`）：效应、反应式协效应、
   fiber 生命周期、虚拟线程异步、声明式加载器。
 - `cordis4j-demo` - 端到端演示。
+- `cordis4j-langchain4j` - LangChain4j 工具桥接：会话工具随插件装载、热卸载、换实现
+  （仅依赖 langchain4j-core，无模型提供方，可离线运行）。
 
 ## 论文概念覆盖度（→ Cordis4j）
 
@@ -70,6 +72,7 @@ db.dispose();                                       // → dependents 先排空�
 | 隔离 realm + 拦截元数据幺半群（§5.1.2） | ✅ | `isolate`、`InterceptMetadata` |
 | 声明式加载器、id 键控 diff、事务性重载（§5.2.1, Alg. 10） | ✅ | `Loader` |
 | 字节码级热模块替换（§5.2.2） | 🅿 P3 | ClassLoader/ModuleLayer 评估 |
+| LangChain4j 工具桥接（生态） | ✅ | `cordis4j-langchain4j` 的 `CordisToolRegistry` |
 
 ## 快速开始与演示
 
@@ -91,17 +94,20 @@ mvn -pl cordis4j-demo exec:java
 
 运行其他演示：加 `-Dexec.mainClass=io.cordis4j.demo.<DemoName>`。
 
+`cordis4j-langchain4j` 附带 `SessionToolDemo`（agent 工具随会话装载、热卸载、换实现）：
+`mvn -pl cordis4j-langchain4j exec:java`。
+
 ## 构建与质量门禁
 
 ```console
-mvn verify   # enforcer + spotless + 测试（T1-T24，共 77 个）+ jacoco（>= 85%）+ javadoc + 依赖分析
+mvn verify   # enforcer + spotless + 测试（T1-T25，共 85 个）+ jacoco（>= 85%）+ javadoc + 依赖分析
 ```
 
 ## 路线图
 
 - **P3** - 注入的编译期注解处理（运行时反射形态已落地：`@Inject` / `Injects`）、字节码级热模块
-  替换（自定义 ClassLoader / ModuleLayer 方案评估，参考 OSGi 与 pf4j 先例）、生态集成
-  （Spring、Quarkus、LangChain4j）。
+  替换（自定义 ClassLoader / ModuleLayer 方案评估，参考 OSGi 与 pf4j 先例）、其余生态集成
+  （Spring、Quarkus）。LangChain4j 集成已落地为独立模块 `cordis4j-langchain4j`。
 
 ## 致谢
 
