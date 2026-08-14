@@ -1,6 +1,6 @@
 # Cordis4j Design Contract
 
-> Status: **v1.0, frozen** (for v0.1.0). Any semantic change must append a new decision-log entry
+> Status: **v2.0, frozen** (for v0.2.0). Any semantic change must append a new decision-log entry
 > (Section 2) and bump this version.
 > Semantic baseline: the Cordis paper, *A Programming Paradigm for Spatiotemporal Composability*,
 > Sections 3-5 (section numbers below refer to that paper); reference implementations:
@@ -15,24 +15,30 @@
 
 ### 1.1 Goals
 
-Ship the kernel of spatiotemporal composability on the JVM (v0.1.0 vertical slice):
+Ship the kernel of spatiotemporal composability on the JVM (v0.2.0, full core-library coverage
+of the paper's Sections 3-5):
 
 - **Temporal dimension (revertible effects)**: every context mutation carries an explicit
   inverse; the runtime accumulates them in LIFO order and recovers them wholesale on unload
   (paper Section 3.1, Algorithm 1);
-- **Spatial dimension (reactive coeffects)**: services are provided and resolved under typed
-  keys, with realm qualifiers and isolation derivation (paper Section 3.2, Section 5.1.2);
+- **Spatial dimension (reactive coeffects)**: typed keys with realm qualifiers and isolation
+  derivation (Section 5.1.2), plus reactive dependency declaration - activation on satisfaction,
+  withdrawal drain, re-activation (Algorithm 3, Theorem 63);
 - **Unified context tree**: `fork()` derives isolated child contexts, `dispose()` cascades
-  recovery (paper Section 3.3.1);
-- **Component lifecycle**: two states (INACTIVE/ACTIVE), fully synchronous (a simplification of
-  paper Section 4.2; the inertial state machine is P2).
+  recovery (Section 3.3.1);
+- **Component lifecycle**: the four-state fiber machine with inertia - unload waits for in-flight
+  activations to land, dependents drain before providers revert (Section 4.2-4.3, Algorithms
+  4/5), including failure routing and cycle guards;
+- **Asynchrony**: virtual-thread activations, reversible spawned tasks, and the guard protocol
+  (Sections 4.3.2-4.3.3);
+- **Declarative loader**: id-keyed configuration diffing with transactional reconcile
+  (Section 5.2.1, Algorithm 10, configuration level).
 
-### 1.2 Out of scope this round (P2/P3)
+### 1.2 Out of scope (P3)
 
-Declarative loader and configuration reconciliation (Section 5.2.1), HMR (Section 5.2.2), the
-inertial asynchronous state machine (Section 4.3.3), annotation/proxy-based injection (the
-upstream mixin), event filters, thread safety, Spring/Quarkus/LangChain4j integrations, and
-bytecode-level hot replacement (JVM ClassLoader approaches).
+Bytecode-level hot module replacement (Section 5.2.2; custom ClassLoader / ModuleLayer
+evaluation following the OSGi and pf4j precedents), annotation/proxy-based injection, and
+ecosystem integrations (Spring, Quarkus, LangChain4j).
 
 ---
 
@@ -50,6 +56,16 @@ bytecode-level hot replacement (JVM ClassLoader approaches).
 | D8 | Threading | P1 is single-threaded; the contract states "not synchronized" | Correct first, concurrent later |
 | D9 | Service.start/stop | Marked explicitly as an **extension** (not paper semantics): start() on provide within an active plugin domain; stop() in reverse provisioning order on domain reversion | Paper-grounded ordering is covered by T6 instead |
 | D10 | License/attribution | Cordis4j is MIT; README credits the Cordis paper (cordiverse/paper) and the reference implementations cordiverse/cordis and @deepseek-ai/cordis (code repositories are MIT); the paper is cited, its license not asserted | Upstream code is fully MIT, no legal obstacle |
+| D11 | Reactive coeffects | ctx.inject(deps, effect) declares a fiber (paper Algorithm 3): it activates when every declared key resolves, unloads reactively when a relied binding is withdrawn, and may re-activate; the callback's returned Disposable joins the fiber domain (reverted first) | Implements the paper's satisfaction/notify/refresh; the effect-function shape mirrors Plugin |
+| D12 | Supply uniqueness | Two distinct active fibers may not supply one store key (SupplyConflictException); ambient provisioning overwrites freely (administrator semantics) | Paper Section 4.2 disjoint provide sets, fail-fast in Java |
+| D13 | Declaration mediation | While a declarative fiber runs, get/find only resolve its declared keys and its own supplies (InactiveAccessException, paper Algorithm 6); plain plugins are unrestricted | The Java form of upstream proxy-mediated access checks |
+| D14 | Failure routing | An inject activation failure reverts the partial domain, is recorded and logged, and never retries; it does not propagate (paper Section 4.3.4). plugin() failures keep propagating (clause 6.7) | Sibling isolation of the paper's failure semantics |
+| D15 | Asynchrony | pluginAsync runs the effect function on a virtual thread and waits for it to land (inertia); spawn runs long tasks whose handle interrupts and joins them (starting a task is a revertible effect); currentFiber() exposes the guard (isDiverted/checkDiverted) | Paper Sections 4.3.2-4.3.3 in the Java idiom; guard = retired OR not (LOADING/ACTIVE) OR unsatisfied |
+| D16 | Event dispatch | Listeners registered for a supertype receive subtypes (isInstance); optional per-listener filters; strict registration order within one context (updates D3) | Java's class hierarchy replaces upstream string keys |
+| D17 | Intercept metadata | Metadata implementing InterceptMetadata merges along the chain root-to-lookup, nearer-wins on conflict (the paper's right-biased monoid); other kinds stay nearest-wins | Consumption semantics of the @@intercept slot |
+| D18 | Declarative loader | LoaderConfig/ComponentEntry reconcile by id-keyed diff; the component instance is the version (a changed instance reloads); reconcile is transactional (failure restores the previous entries); dispose unloads in reverse load order | Paper Section 5.2.1 / Algorithm 10 at configuration level; record equality is the Java-native config diff |
+| D19 | Threading | Registry state is guarded by internal locks in one acquisition direction (fiber registry, then per-context stores, then scopes); user code runs outside them; reactive notifications triggered by a provide run after that provide's monitor is released | No lock cycles; long activations and teardowns (which may join tasks) never hold the registry monitor |
+| D20 | Withdrawal order | Unloading a fiber first withdraws every key it supplies (draining all dependents, including still-LOADING ones - the chained unload of inertia) and only then reverts its effects LIFO; a drain-interrupted dependent still resolves the dependency during its teardown | Paper L-Leave/L-Unload and Theorem 63 exactly |
 
 ---
 
@@ -133,6 +149,33 @@ by the module).
     public final class Contexts
         static Context create()  // creates a root context
 
+    // ── Reactive coeffects (D11, paper Algorithm 3) ──
+    Disposable inject(Set<ServiceKey<?>> deps, Function<Context, Disposable> onSatisfied)
+    <T> Disposable inject(ServiceKey<T> dep, BiFunction<Context, T, Disposable> onSatisfied)
+    <T> Disposable inject(Class<T> dep, BiFunction<Context, T, Disposable> onSatisfied)
+    <T1,T2> Disposable inject(ServiceKey<T1>, ServiceKey<T2>,
+                              TriFunction<Context, T1, T2, Disposable> onSatisfied)
+        // activates when satisfied; unloads reactively on withdrawal (drained first);
+        // re-activates while neither retired nor failed; activation failures route to unload
+
+    // ── Asynchrony (D15, paper Sections 4.3.2-4.3.3) ──
+    Disposable pluginAsync(AsyncPlugin plugin)  // virtual thread; waits for activation to land
+    Disposable spawn(Runnable task)             // reversible task: handle interrupts and joins
+    Optional<FiberHandle> currentFiber()        // the guard: isDiverted / checkDiverted
+
+    // ── Events (D16) ──
+    <E> Disposable on(Class<E> type, Predicate<E> filter, Consumer<E> listener)
+
+    // ── Declarative loader (D18, paper Section 5.2.1 / Algorithm 10) ──
+    record ComponentEntry(String id, Plugin component)   // instance identity is the version
+    record LoaderConfig(List<ComponentEntry> entries)    // ids unique
+    final class Loader implements Disposable             // id-keyed diff, transactional reconcile
+
+    public class SupplyConflictException extends CordisException   // D12
+    public class CyclicDependencyException extends CordisException // cycle guard (Progress)
+    public class DivertedException extends CordisException         // the guard signal (D15)
+    public interface InterceptMetadata { InterceptMetadata merge(InterceptMetadata nearer); } // D17
+
     public class CordisException extends RuntimeException          // base type
     public class NoSuchServiceException extends CordisException    // carries ServiceKey + lookup path
     public class InactiveAccessException extends CordisException   // type only in P1; thrown by P2 declaration checks
@@ -159,24 +202,30 @@ by the module).
 ## 5. Deviations and extensions (explicit differences from upstream TS)
 
 1. Key scheme: upstream uses string keys plus per-type module augmentation; Cordis4j uses
-   ServiceKey(Class, qualifier). The qualifier plays the realm role; the P2 loader's multi-realm
+   ServiceKey(Class, qualifier). The qualifier plays the realm role; the loader's multi-realm
    support (Section 5.2.1) extends ServiceKey rather than replacing the key scheme.
 2. Lookup failure: upstream ctx.get(key) (a store lookup) never fails - what fails is proxy
    property access (INACTIVE_ACCESS / UNDECLARED_ACCESS); Cordis4j get() throws
-   NoSuchServiceException, find() returns Optional, and InactiveAccessException is reserved for
-   P2 declaration checks.
-3. Lifecycle: upstream is the inertial asynchronous state machine (RELOADING/UNLOADING/FAILED);
-   P1 is the two-state synchronous SimpleLifecycle; the Lifecycle seam keeps P2 replaceable.
-4. Asynchrony: upstream effects and transitions are asynchronous (create_task); P1 is fully
-   synchronous; P2 revisits with virtual threads.
+   NoSuchServiceException, find() returns Optional, and InactiveAccessException carries the
+   declaration checks of Algorithm 6 (D13).
+3. Lifecycle: the synchronous core drives a four-state fiber machine (INACTIVE / LOADING /
+   ACTIVE / UNLOADING, paper Section 4.2); inertia appears as unload-waits-for-landing, including
+   the chained unload of still-LOADING dependents (D20).
+4. Asynchrony: upstream effects and transitions are asynchronous (create_task); Cordis4j offers
+   both the synchronous core and the virtual-thread forms (pluginAsync / spawn, D15). The effect
+   iterator of Algorithm 1 appears as the guard protocol (currentFiber / isDiverted) instead of
+   language-level generators.
 5. Service.start/stop: upstream services are values and lifecycle lives at the fiber level;
    Cordis4j's Service hooks are an explicit extension (D9), not part of the paper semantics.
-6. Property access: upstream ctx[key] is Proxy-mediated and enforces declarations (Algorithm 6);
-   Cordis4j has no dynamic properties; P2 provides the equivalent mediation via @Inject
-   annotations plus compile-time/proxy generation.
-7. Event filters (ctx.filter): P2.
+6. Property access: upstream ctx[key] is Proxy-mediated; Cordis4j mediates declarative fibers'
+   get/find instead (D13); annotation-based injection remains future work.
+7. Event filters: provided as per-listener predicates on Context.on(type, filter, listener)
+   (D16); upstream's declarative filter registries are not mirrored.
 8. Logger/logger(name): a minimal, zero-dependency alignment with the upstream built-in logger
    service (java.util.logging adapter).
+9. Reactive re-activation reuses the fiber (fresh effect domain per activation); the paper's
+   reload keeps the same fiber identity too, but upstream TS recreates plugin instances - the
+   callback must therefore be idempotent-safe to re-run.
 
 ---
 
@@ -201,19 +250,46 @@ by the module).
     tree, T6).
 11. Event bubbling direction: child-to-ancestor only; listeners within one context run in
     registration order.
-12. Single-threaded: all operations are not thread-safe; sharing a context across threads is
-    undefined behavior (D8).
+12. Concurrency: registry state is internally locked (D19); user callbacks must not block on
+    other threads that need the tree's state (documented; the runtime itself never does so).
+13. Reactive lifecycle: an inject fiber activates when satisfied; a withdrawn binding unloads it
+    reactively; a re-satisfied declaration re-activates it; retired or failed fibers never
+    re-activate (T11, T15).
+14. Drain order: unloading a provider withdraws its supplies first; every dependent - including
+    one still LOADING - unloads before any of the provider's own effects revert, and each
+    dependent's teardown still resolves the withdrawn binding (T12, D20).
+15. Supply uniqueness: a second active fiber supplying an occupied store key throws
+    SupplyConflictException and its plugin registration rolls back; ambient provides overwrite
+    freely (T13).
+16. Declaration mediation: get/find inside a declarative fiber resolve only its declared keys
+    and its own supplies; events are not mediated (T14).
+17. Guard: a spawned task inherits its spawner's fiber; isDiverted is true once the fiber is
+    retired, unloading/inactive, or its declaration stopped resolving (T20).
+18. pluginAsync waits for the activation to land; checked activation failures propagate wrapped
+    in CordisException; a spawned task's handle interrupts and joins it on domain unload (T19).
+19. Events: a supertype listener receives subtype events; per-listener filters run before the
+    listener (T17).
+20. Intercept metadata: all-InterceptMetadata chains merge root-to-lookup (nearer wins on
+    conflict); mixed kinds keep nearest-wins (T18).
+21. Loader: reconcile loads new ids, unloads vanished ids, reloads changed instances
+    (instance identity is the version); a failed reconcile restores the previous set;
+    dispose unloads in reverse load order (T21).
+22. Repeat provide: providing the same instance twice under one key makes the first removal
+    disposable a no-op; the current one removes the binding (T23).
 
 ---
 
-## 7. Lifecycle model (P1)
+## 7. Lifecycle model
 
-- States: INACTIVE / ACTIVE (two states).
-- Transitions: domain created -> apply runs (the synchronous form of LOADING) -> ACTIVE;
-  dispose -> LIFO reversion -> INACTIVE.
-- Seam: internal Lifecycle { void dispose(); }, with SimpleLifecycle as the sole P1
-  implementation; P2 replaces it with the inertial state machine (paper Algorithm 5
-  refresh/reload/unload and fiber.inertia).
+- Fiber states: INACTIVE / LOADING / ACTIVE / UNLOADING (paper Section 4.2, synchronous form).
+- Transitions: activate runs the effect function inside a fresh effect domain (LOADING -> ACTIVE);
+  unload withdraws supplies (draining dependents, chained through still-LOADING ones), reverts the
+  domain LIFO, and hands the fiber a fresh domain for a possible re-activation; a failure during
+  activation routes to unload and freezes the fiber (failed, never retried).
+- Inertia: an unload encountering a LOADING fiber waits for the activation to land first
+  (paper Section 4.3.3); user code always runs outside the registry monitor (D19).
+- Asynchrony: pluginAsync/spawn carry activations and long tasks on virtual threads; task handles
+  are revertible effects (interrupt + join).
 
 ---
 
