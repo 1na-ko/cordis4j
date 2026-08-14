@@ -36,11 +36,12 @@ of the paper's Sections 3-5):
 
 ### 1.2 Out of scope (P3)
 
-Bytecode-level hot module replacement (Section 5.2.2; custom ClassLoader / ModuleLayer
-evaluation following the OSGi and pf4j precedents), compile-time annotation processing for
-injection (the runtime-reflection form landed as D21), and the remaining ecosystem integrations
-(Spring, Quarkus). The LangChain4j tool bridge landed as a separate module
-(cordis4j-langchain4j) and lives outside this core contract.
+Bytecode-level hot module replacement (Section 5.2.2; the pf4j / OSGi / ModuleLayer evaluation
+is recorded in docs/design/hmr-evaluation.md and recommends a zero-dependency custom ClassLoader
+engine as the first implementation stage), compile-time annotation processing for injection (the
+runtime-reflection form landed as D21), and the remaining ecosystem integrations (Spring,
+Quarkus). The LangChain4j tool bridge landed as a separate module (cordis4j-langchain4j) and
+lives outside this core contract.
 
 ---
 
@@ -324,8 +325,11 @@ by the module).
 - Ecosystem (module-level, outside this core contract; no decision-log entry): cordis4j-langchain4j
   exposes `CordisTool` services of a session context as LangChain4j tools that follow the
   reactive-coeffect lifecycle (T25).
-- Remaining: compile-time annotation processing for injection, and bytecode-level HMR (custom
-  ClassLoader / ModuleLayer evaluation, following the OSGi and pf4j precedents).
+- HMR evaluation (roadmap c, document first): docs/design/hmr-evaluation.md compares pf4j, OSGi,
+  and ModuleLayer against paper Section 5.2.2, recommends a zero-dependency custom ClassLoader
+  engine as stage 1 and ModuleLayer as an optional stage 2, and rejects OSGi/pf4j.
+- Remaining: compile-time annotation processing for injection, the bytecode-level HMR engine, and
+  the Spring/Quarkus integrations.
 
 ---
 

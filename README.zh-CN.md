@@ -106,8 +106,9 @@ mvn verify   # enforcer + spotless + 测试（T1-T25，共 85 个）+ jacoco（>
 ## 路线图
 
 - **P3** - 注入的编译期注解处理（运行时反射形态已落地：`@Inject` / `Injects`）、字节码级热模块
-  替换（自定义 ClassLoader / ModuleLayer 方案评估，参考 OSGi 与 pf4j 先例）、其余生态集成
-  （Spring、Quarkus）。LangChain4j 集成已落地为独立模块 `cordis4j-langchain4j`。
+  替换（pf4j / OSGi / ModuleLayer 方案评估已记录于 `docs/design/hmr-evaluation.md`；零依赖
+  ClassLoader 引擎为下一步实现）、其余生态集成（Spring、Quarkus）。LangChain4j 集成已落地为
+  独立模块 `cordis4j-langchain4j`。
 
 ## 致谢
 
