@@ -66,6 +66,8 @@ disappear, or are replaced.
   loaders, swaps fibers transactionally on reload, and collects the replaced code.
 - `cordis4j-spring` — Spring integration: a Context bean and @CordisService beans whose bindings
   follow the container's lifecycle (spring-beans only; zero code changes to the core).
+- `cordis4j-inject-processor` — compile-time generation for annotation injection: validates
+  @Inject fields at compile time and emits a zero-reflection injector per class.
 
 ## Feature map (paper → Cordis4j)
 
@@ -73,7 +75,7 @@ disappear, or are replaced.
 |---|---|---|
 | Revertible effects, LIFO accumulator (§3.1, Alg. 1) | ✅ | `EffectScope`, `Disposable` |
 | Reactive coeffects: satisfaction, notify, refresh (§3.2, Alg. 3) | ✅ | `Context.inject` |
-| Annotation-mediated injection (§6.4) | ✅ | `@Inject`, `Injects.injectFields` |
+| Annotation-mediated injection (§6.4) | ✅ | `@Inject`, `Injects.injectFields`; compile-time generation in `cordis4j-inject-processor` |
 | Withdrawal drain, provider-teardown ordering (§4.3.1, Th. 63) | ✅ | automatic on unload |
 | Supply uniqueness (§4.2) | ✅ | `SupplyConflictException` |
 | Declaration mediation / capability access (Alg. 6) | ✅ | enforced in declarative fibers |
@@ -112,16 +114,16 @@ mid-conversation); run it with `mvn -pl cordis4j-langchain4j exec:java`.
 ## Build & quality gates
 
 ```console
-mvn verify   # enforcer + spotless + tests (T1-T27, 100 tests) + jacoco (>= 85%) + javadoc + dependency analysis
+mvn verify   # enforcer + spotless + tests (T1-T28, 106 tests) + jacoco (>= 85%) + javadoc + dependency analysis
 ```
 
 ## Roadmap
 
-- **P3** — compile-time annotation processing for injection (the runtime-reflection form has
-  landed: `@Inject` / `Injects`), the ModuleLayer HMR variant (stage 2 of
-  `docs/design/hmr-evaluation.md`; stage 1, the zero-dependency ClassLoader engine, has landed as
-  `cordis4j-hmr`), and the Quarkus integration. The LangChain4j and Spring integrations have
-  landed as separate modules (`cordis4j-langchain4j`, `cordis4j-spring`).
+- **P3** — the ModuleLayer HMR variant (stage 2 of `docs/design/hmr-evaluation.md`; stage 1, the
+  zero-dependency ClassLoader engine, has landed as `cordis4j-hmr`) and the Quarkus integration.
+  The other P3 items have landed: annotation injection (runtime `@Inject`/`Injects` and
+  compile-time `cordis4j-inject-processor`), LangChain4j (`cordis4j-langchain4j`), and Spring
+  (`cordis4j-spring`).
 
 ## Contributing
 

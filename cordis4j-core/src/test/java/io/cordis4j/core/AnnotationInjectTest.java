@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -212,6 +213,47 @@ class AnnotationInjectTest {
 
     assertThrows(NullPointerException.class, () -> Injects.injectFields(null, plain));
     assertThrows(NullPointerException.class, () -> Injects.injectFields(ctx, null));
+  }
+
+  @Test
+  @DisplayName("T24 字段访问策略形态：FieldTarget 列表走同一快照语义（编译期生成代码的运行时面）")
+  void fieldTargetShape() {
+    Context ctx = Contexts.create();
+    final Database[] slot = new Database[1];
+    Injects.FieldTarget target =
+        new Injects.FieldTarget() {
+          @Override
+          public ServiceKey<?> key() {
+            return ServiceKey.of(Database.class);
+          }
+
+          @Override
+          public void set(Object value) {
+            slot[0] = (Database) value;
+          }
+        };
+
+    Disposable declaration = Injects.injectFields(ctx, List.of(target));
+    assertNull(slot[0], "依赖缺失时不得写入");
+
+    Disposable provider =
+        ctx.plugin(
+            c -> {
+              c.provide(new Database("jdbc:main"));
+              return Disposables.none();
+            });
+    assertEquals("jdbc:main", slot[0].url(), "满足后必须写入绑定");
+
+    provider.dispose();
+    assertNull(slot[0], "撤回后必须以 null 清空");
+
+    declaration.dispose(); // retired
+    ctx.plugin(
+        c -> {
+          c.provide(new Database("jdbc:again"));
+          return Disposables.none();
+        });
+    assertNull(slot[0], "退役后不得再写入");
   }
 
   static class StaticConsumer {

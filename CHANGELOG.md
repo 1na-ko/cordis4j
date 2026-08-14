@@ -41,6 +41,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CordisServiceRegistrar` provides `@CordisService` beans into the container's Context after
   initialization and withdraws them in reverse provisioning order on shutdown; without a Context
   bean the integration stays dormant. Main code depends on spring-beans only (T27).
+- `cordis4j-inject-processor` (new module): compile-time generation for annotation injection
+  (paper Section 6.4, compile-time metaprogramming). The processor validates `@Inject` fields at
+  compile time (public top-level class in a named package; non-static/final/primitive/private
+  fields) and emits a zero-reflection injector per class through the new `Injects.FieldTarget`
+  accessor shape (core) - no reflection and no `opens` at runtime, at the cost of field
+  visibility (T28).
 
 ### Fixed
 

@@ -39,10 +39,10 @@ of the paper's Sections 3-5):
 Bytecode-level hot module replacement has landed as a separate module (cordis4j-hmr, stage 1 of
 docs/design/hmr-evaluation.md: a zero-dependency custom ClassLoader engine with jar-granular
 module classification and transactional reload), leaving out of scope: the ModuleLayer variant
-(stage 2) and file-granular import-graph classification, compile-time annotation processing for
-injection (the runtime-reflection form landed as D21), and the remaining ecosystem integration
-(Quarkus). The LangChain4j tool bridge and the Spring integration landed as separate modules
-(cordis4j-langchain4j, cordis4j-spring) and live outside this core contract.
+(stage 2) and file-granular import-graph classification, and the remaining ecosystem integration
+(Quarkus). Compile-time annotation processing for injection has landed as a separate module
+(cordis4j-inject-processor, T28); the LangChain4j tool bridge and the Spring integration landed
+as separate modules (cordis4j-langchain4j, cordis4j-spring) and live outside this core contract.
 
 ---
 
@@ -171,6 +171,12 @@ by the module).
         // populates them as activation-time snapshots, clears them on withdrawal/retirement,
         // refills on re-satisfaction; fail-fast (IllegalArgumentException) on static/final/
         // primitive fields; no annotated field -> Disposables.none()
+        interface FieldTarget                         // the accessor shape of Section 6.4
+            ServiceKey<?> key()                      // the field's dependency key
+            void set(Object value)                   // writes the binding; null clears
+        static Disposable injectFields(Context ctx, List<FieldTarget> targets)
+        // one declaration over explicit accessors: the runtime form wraps reflection targets,
+        // and the compile-time processor (cordis4j-inject-processor) generates direct assignments
 
     // ── Asynchrony (D15, paper Sections 4.3.2-4.3.3) ──
     Disposable pluginAsync(AsyncPlugin plugin)  // virtual thread; waits for activation to land
@@ -331,8 +337,12 @@ by the module).
   (docs/design/hmr-evaluation.md) and the stage-1 engine (cordis4j-hmr) - a zero-dependency
   custom ClassLoader engine with jar-granular module classification, loader close-and-collect
   retraction, and transactional reload over the core Loader (T26).
-- Remaining: compile-time annotation processing for injection, the ModuleLayer HMR variant
-  (stage 2) with file-granular import-graph classification, and the Quarkus integration.
+- Compile-time injection (paper Section 6.4, module-level, outside this core contract; no
+  decision-log entry): cordis4j-inject-processor validates @Inject fields at compile time
+  (public top-level class, non-static/final/primitive/private fields, named package) and emits a
+  zero-reflection injector per class through the {@code Injects.FieldTarget} accessor shape (T28).
+- Remaining: the ModuleLayer HMR variant (stage 2) with file-granular import-graph classification,
+  and the Quarkus integration.
 
 ---
 

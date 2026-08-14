@@ -33,6 +33,7 @@
     <module>cordis4j-langchain4j</module>
     <module>cordis4j-hmr</module>
     <module>cordis4j-spring</module>
+    <module>cordis4j-inject-processor</module>
   </modules>
 
   <properties>
