@@ -1,0 +1,4 @@
+/*
+ * Copyright $YEAR the Cordis4j contributors
+ * SPDX-License-Identifier: MIT
+ */
