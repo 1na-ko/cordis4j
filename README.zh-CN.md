@@ -53,6 +53,15 @@ db.dispose();                                       // → dependents 先排空�
 - `cordis4j-core` - 零依赖核心库（JPMS 模块 `io.cordis4j.core`）：效应、反应式协效应、
   fiber 生命周期、虚拟线程异步、声明式加载器。
 - `cordis4j-demo` - 端到端演示。
+- `cordis4j-langchain4j` - LangChain4j 工具桥接：会话工具随插件装载、热卸载、换实现
+  （仅依赖 langchain4j-core，无模型提供方，可离线运行）。
+- `cordis4j-hmr` - 字节码级热模块替换：插件 jar 装入每插件独立类加载器，重载时事务性
+  换 fiber，被替换的代码可被回收。
+- `cordis4j-spring` - Spring 集成：Context bean 与 @CordisService bean，其绑定跟随容器
+  生命周期（仅依赖 spring-beans；核心零改动）。
+- `cordis4j-inject-processor` - 注解注入的编译期生成：编译期校验 @Inject 字段并为每个类
+  生成免反射 injector。
+- `cordis4j-timer` - 基于 spawn 模型的可逆定时器：一次性与周期回调都是"启动即效应、撤销即停止"。
 
 ## 论文概念覆盖度（→ Cordis4j）
 
@@ -60,6 +69,8 @@ db.dispose();                                       // → dependents 先排空�
 |---|---|---|
 | 可逆效应、LIFO 累积器（§3.1, Alg. 1） | ✅ | `EffectScope`、`Disposable` |
 | 反应式协效应：满足/通知/刷新（§3.2, Alg. 3） | ✅ | `Context.inject` |
+| 事件分发模式：prepend、once、bail、waterfall（上游对齐） | ✅ | `Context.on/once/fold/bail/waterfall`（D22） |
+| 注解式注入（§6.4） | ✅ | `@Inject`、`Injects.injectFields`；编译期生成见 `cordis4j-inject-processor` |
 | 撤退排空、provider 卸载顺序（§4.3.1, Th. 63） | ✅ | 卸载时自动执行 |
 | 供给唯一性（§4.2） | ✅ | `SupplyConflictException` |
 | 声明中介 / 能力式访问（Alg. 6） | ✅ | 声明式 fiber 内强制 |
@@ -68,7 +79,10 @@ db.dispose();                                       // → dependents 先排空�
 | 虚拟线程异步 + guard/divert（§4.3.2） | ✅ | `pluginAsync`、`spawn`、`currentFiber` |
 | 隔离 realm + 拦截元数据幺半群（§5.1.2） | ✅ | `isolate`、`InterceptMetadata` |
 | 声明式加载器、id 键控 diff、事务性重载（§5.2.1, Alg. 10） | ✅ | `Loader` |
-| 字节码级热模块替换（§5.2.2） | 🅿 P3 | ClassLoader/ModuleLayer 评估 |
+| Loader 组合 DSL：group/isolate/tree/include（上游对齐） | ✅ | `ComponentSpec`、`reconcileTree`（D26） |
+| 字节码级热模块替换（§5.2.2） | ✅ | `cordis4j-hmr` 的 `HotReloadingLoader` |
+| LangChain4j 工具桥接（生态） | ✅ | `cordis4j-langchain4j` 的 `CordisToolRegistry` |
+| Spring 集成（生态） | ✅ | `cordis4j-spring` 的 `ContextFactoryBean` |
 
 ## 快速开始与演示
 
@@ -90,16 +104,25 @@ mvn -pl cordis4j-demo exec:java
 
 运行其他演示：加 `-Dexec.mainClass=io.cordis4j.demo.<DemoName>`。
 
+`cordis4j-langchain4j` 附带 `SessionToolDemo`（agent 工具随会话装载、热卸载、换实现）：
+`mvn -pl cordis4j-langchain4j exec:java`。
+
 ## 构建与质量门禁
 
 ```console
-mvn verify   # enforcer + spotless + 测试（T1-T23，共 70 个）+ jacoco（>= 85%）+ javadoc + 依赖分析
+mvn verify   # enforcer + spotless + 测试（T1-T33，共 129 个）+ jacoco（>= 85%）+ javadoc + 依赖分析
 ```
 
 ## 路线图
 
-- **P3** - 字节码级热模块替换（自定义 ClassLoader / ModuleLayer 方案评估，参考 OSGi 与 pf4j
-  先例）、注解式注入、生态集成（Spring、Quarkus、LangChain4j）。
+- **P4（上游对齐）** - 对齐基准 docs/design/upstream-parity.md 已全部落地：事件模式（D22）、
+  定时器模块、intercept 链消费（D23）、注册表视图（D24）、loader 组合 DSL 与 baseUrl
+  （D25/D26）。
+- **P3** - ModuleLayer HMR 变体（`docs/design/hmr-evaluation.md` 的阶段 2；阶段 1 零依赖
+  ClassLoader 引擎已落地为 `cordis4j-hmr`）与 Quarkus 生态集成（已评估并推迟，
+  `docs/design/quarkus-evaluation.md`）。其余 P3 项已落地：注解注入（运行时
+  `@Inject`/`Injects` 与编译期 `cordis4j-inject-processor`）、LangChain4j
+  （`cordis4j-langchain4j`）、Spring（`cordis4j-spring`）。
 
 ## 致谢
 

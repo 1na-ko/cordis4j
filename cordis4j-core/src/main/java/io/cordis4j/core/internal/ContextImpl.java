@@ -16,8 +16,11 @@ import io.cordis4j.core.NoSuchServiceException;
 import io.cordis4j.core.Plugin;
 import io.cordis4j.core.ServiceKey;
 import io.cordis4j.core.TriFunction;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -55,6 +58,7 @@ public final class ContextImpl implements Context {
 
   private volatile boolean disposed;
   private volatile ExecutorService executor;
+  private Path baseUrl;
 
   /** Creates a context; {@code parent} is null only for the root. */
   public ContextImpl(ContextImpl parent) {
@@ -161,10 +165,23 @@ public final class ContextImpl implements Context {
   }
 
   @Override
+  public Map<ServiceKey<?>, Object> services() {
+    checkAlive();
+    return java.util.Collections.unmodifiableMap(registry.snapshot());
+  }
+
+  @Override
   public <T> Optional<Object> interceptOf(ServiceKey<T> key) {
     checkAlive();
     Objects.requireNonNull(key, "key");
     return Optional.ofNullable(registry.findIntercept(key));
+  }
+
+  @Override
+  public <T> List<Object> intercepts(ServiceKey<T> key) {
+    checkAlive();
+    Objects.requireNonNull(key, "key");
+    return List.copyOf(registry.findIntercepts(key));
   }
 
   @Override
@@ -184,9 +201,59 @@ public final class ContextImpl implements Context {
     Objects.requireNonNull(type, "type");
     Objects.requireNonNull(filter, "filter");
     Objects.requireNonNull(listener, "listener");
-    Disposable registration = events.on(type, filter, listener);
+    Disposable registration = events.on(type, filter, listener, false);
     track(registration);
     return registration;
+  }
+
+  @Override
+  public <E> Disposable on(Class<E> type, Consumer<E> listener, boolean prepend) {
+    checkAlive();
+    Objects.requireNonNull(type, "type");
+    Objects.requireNonNull(listener, "listener");
+    Disposable registration = events.on(type, event -> true, listener, prepend);
+    track(registration);
+    return registration;
+  }
+
+  @Override
+  public <E> Disposable once(Class<E> type, Consumer<E> listener) {
+    return once(type, event -> true, listener);
+  }
+
+  @Override
+  public <E> Disposable once(Class<E> type, Predicate<E> filter, Consumer<E> listener) {
+    checkAlive();
+    Objects.requireNonNull(type, "type");
+    Objects.requireNonNull(filter, "filter");
+    Objects.requireNonNull(listener, "listener");
+    Disposable registration = events.once(type, filter, listener);
+    track(registration);
+    return registration;
+  }
+
+  @Override
+  public <E> Disposable fold(Class<E> type, Function<E, E> listener) {
+    checkAlive();
+    Objects.requireNonNull(type, "type");
+    Objects.requireNonNull(listener, "listener");
+    Disposable registration = events.fold(type, listener);
+    track(registration);
+    return registration;
+  }
+
+  @Override
+  public <E> Optional<E> bail(E event) {
+    checkAlive();
+    Objects.requireNonNull(event, "event");
+    return events.bail(event);
+  }
+
+  @Override
+  public <E> E waterfall(E event) {
+    checkAlive();
+    Objects.requireNonNull(event, "event");
+    return events.waterfall(event);
   }
 
   @Override
@@ -207,6 +274,28 @@ public final class ContextImpl implements Context {
   @Override
   public Context root() {
     return root;
+  }
+
+  @Override
+  public Optional<Path> baseUrl() {
+    checkAlive();
+    for (ContextImpl context = this; context != null; context = context.parent) {
+      Path bound = context.baseUrl;
+      if (bound != null) {
+        return Optional.of(bound);
+      }
+    }
+    return Optional.empty();
+  }
+
+  @Override
+  public Context withBaseUrl(Path baseUrl) {
+    checkAlive();
+    Objects.requireNonNull(baseUrl, "baseUrl");
+    ContextImpl child = new ContextImpl(this);
+    child.baseUrl = baseUrl;
+    track(Disposables.of(child::dispose));
+    return child;
   }
 
   @Override

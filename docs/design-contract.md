@@ -1,7 +1,8 @@
 # Cordis4j Design Contract
 
-> Status: **v2.0, frozen** (for v0.2.0). Any semantic change must append a new decision-log entry
-> (Section 2) and bump this version.
+> Status: **v2.6, frozen** (for v0.2.1). Any semantic change must append a new decision-log entry
+> (Section 2) and bump this version. v2.6 appends D27 (HMR class isolation model) on top of
+> v2.5 (D25/D26).
 > Semantic baseline: the Cordis paper, *A Programming Paradigm for Spatiotemporal Composability*,
 > Sections 3-5 (section numbers below refer to that paper); reference implementations:
 > [cordiverse/cordis](https://github.com/cordiverse/cordis) and `@deepseek-ai/cordis`@4.0.1 (MIT).
@@ -36,9 +37,15 @@ of the paper's Sections 3-5):
 
 ### 1.2 Out of scope (P3)
 
-Bytecode-level hot module replacement (Section 5.2.2; custom ClassLoader / ModuleLayer
-evaluation following the OSGi and pf4j precedents), annotation/proxy-based injection, and
-ecosystem integrations (Spring, Quarkus, LangChain4j).
+Bytecode-level hot module replacement has landed as a separate module (cordis4j-hmr, stage 1 of
+docs/design/hmr-evaluation.md: a zero-dependency custom ClassLoader engine with jar-granular
+module classification and transactional reload), leaving out of scope: the ModuleLayer variant
+(stage 2) and file-granular import-graph classification. The Quarkus integration is evaluated
+and deferred (docs/design/quarkus-evaluation.md recommends a plain CDI module when a concrete
+deployment needs it). Compile-time annotation processing for injection has landed as a separate
+module (cordis4j-inject-processor, T28); the LangChain4j tool bridge and the Spring integration
+landed as separate modules (cordis4j-langchain4j, cordis4j-spring) and live outside this core
+contract.
 
 ---
 
@@ -66,6 +73,13 @@ ecosystem integrations (Spring, Quarkus, LangChain4j).
 | D18 | Declarative loader | LoaderConfig/ComponentEntry reconcile by id-keyed diff; the component instance is the version (a changed instance reloads); reconcile is transactional (failure restores the previous entries); dispose unloads in reverse load order | Paper Section 5.2.1 / Algorithm 10 at configuration level; record equality is the Java-native config diff |
 | D19 | Threading | Registry state is guarded by internal locks in one acquisition direction (fiber registry, then per-context stores, then scopes); user code runs outside them; reactive notifications triggered by a provide run after that provide's monitor is released | No lock cycles; long activations and teardowns (which may join tasks) never hold the registry monitor |
 | D20 | Withdrawal order | Unloading a fiber first withdraws every key it supplies (draining all dependents, including still-LOADING ones - the chained unload of inertia) and only then reverts its effects LIFO; a drain-interrupted dependent still resolves the dependency during its teardown | Paper L-Leave/L-Unload and Theorem 63 exactly |
+| D21 | Annotation injection | @Inject(qualifier) fields of an instance, assembled by Injects.injectFields(ctx, instance) into one D11 declaration: activation populates the fields as snapshots, withdrawal/retirement clears them, re-satisfaction refills; assembly fails fast on static/final/primitive fields, and an instance without annotated fields is a no-op | Paper Section 6.4 sanctions annotation-mediated access via runtime reflection where the language has no transparent interception primitive; keeps core zero-dependency (JDK reflection only) |
+| D22 | Event modes | on(type, listener, prepend) inserts before the context's existing listeners; once fires exactly once then unregisters (filter honored, manual removal still possible); a second, function-shaped listener list (fold) powers bail - the first non-null result short-circuits the dispatch, ancestors included - and waterfall - non-null results fold into the next input, null keeps the accumulator; emit stays the consumer-list path; bubbling stays child-to-root | Upstream DispatchMode bail/waterfall plus the prepend option and once, in the synchronous core's typed form (the upstream parity baseline, docs/design/upstream-parity.md); parallel/serial stay out of scope as async dispatch |
+| D23 | Intercept consumption | Context.intercepts(key) collects the interception metadata bound along the tree root-first, nearest-last (the raw chain, no merging); interceptOf stays the nearer-wins monoid over that chain; callers merge the list with any policy | The Java form of upstream's Service.resolveConfig - chain collection is the consumption semantics, merging policy stays in the caller (the upstream parity baseline) |
+| D24 | Registry view | Context.services() snapshots the bindings this context provides (ancestors excluded), keyed by the effective store key with the realm override applied; the snapshot is immutable; enumeration walks the snapshot | The typed form of upstream's registry values/entries; a resolved whole-tree view stays out of scope until the loader composition DSL (parity P4-4) needs it |
+| D25 | Base directory | Context.baseUrl() returns the nearest base directory bound by this context or an ancestor (empty when none); Context.withBaseUrl(path) derives a child carrying it, like fork(); relative configuration paths (include references) resolve against it | Upstream Context.baseUrl in the immutable-derivation idiom (fork/isolate) |
+| D26 | Loader composition | Loader.reconcileTree flattens a ComponentSpec tree into per-entry load contexts and reconciles through the D18 engine: Group prefixes its children's ids with groupId+':'; Isolate loads its children into a derived isolate(type, realm) context (a per-node realm, disposed once its entries all unload); Include inlines another configuration source resolved against the base directory through a caller-supplied resolver (no file format imposed); duplicate flattened ids fail fast before any change; failures roll back like D18 | Upstream's entry/group/isolate/tree configuration and the include directive in typed form; the flat reconcile(LoaderConfig) is the single-context special case of the same engine |
+| D27 | HMR class isolation | cordis4j-hmr loads each plugin jar into a URLClassLoader parented on the cordis4j-core loader: host classes win over same-named plugin classes (plugins always see the host Plugin type), plugins cannot ship their own versions of host dependencies, cross-plugin same-name classes are distinct copies, and there is no module encapsulation; retraction stays close-and-collect with the GC guarantee of T26/T34 | The stage-1 model of docs/design/hmr-evaluation.md section 5; the child-first (with a cordis4j-core exclusion) and ModuleLayer upgrades are evaluated and reserved in docs/design/hmr-isolation-evaluation.md - code follows only when a real requirement appears |
 
 ---
 
@@ -124,6 +138,15 @@ by the module).
             // Section 5.1.2 @@intercept); consumption semantics: the merge monoid of D17
         <T> Optional<Object> interceptOf(ServiceKey<T> key)
             // queries interception metadata walking up the tree; first hit wins; empty if none
+        <T> List<Object> intercepts(ServiceKey<T> key)
+            // the raw chain root-first, nearest-last; callers merge with any policy (D23)
+        Map<ServiceKey<?>, Object> services()
+            // immutable snapshot of this context's provided bindings (ancestors excluded),
+            // keyed by the effective store key (D24)
+
+        -- Space (Section 3.3.1) --
+        Optional<Path> baseUrl()          // nearest base directory along the tree, or empty (D25)
+        Context withBaseUrl(Path)         // derives a child carrying the base directory
 
         -- Effects (Section 5.1.1, Algorithm 1) --
         EffectScope effect()
@@ -158,6 +181,21 @@ by the module).
         // activates when satisfied; unloads reactively on withdrawal (drained first);
         // re-activates while neither retired nor failed; activation failures route to unload
 
+    // ── Annotation injection (D21, paper Section 6.4) ──
+    @interface Inject                                // FIELD; String qualifier() default ""
+    public final class Injects
+        static Disposable injectFields(Context ctx, Object instance)
+        // scans the class hierarchy's @Inject fields (up to Object) into one declaration;
+        // populates them as activation-time snapshots, clears them on withdrawal/retirement,
+        // refills on re-satisfaction; fail-fast (IllegalArgumentException) on static/final/
+        // primitive fields; no annotated field -> Disposables.none()
+        interface FieldTarget                         // the accessor shape of Section 6.4
+            ServiceKey<?> key()                      // the field's dependency key
+            void set(Object value)                   // writes the binding; null clears
+        static Disposable injectFields(Context ctx, List<FieldTarget> targets)
+        // one declaration over explicit accessors: the runtime form wraps reflection targets,
+        // and the compile-time processor (cordis4j-inject-processor) generates direct assignments
+
     // ── Asynchrony (D15, paper Sections 4.3.2-4.3.3) ──
     Disposable pluginAsync(AsyncPlugin plugin)  // virtual thread; waits for activation to land
     Disposable spawn(Runnable task)             // reversible task: handle interrupts and joins
@@ -170,6 +208,19 @@ by the module).
     record ComponentEntry(String id, Plugin component)   // instance identity is the version
     record LoaderConfig(List<ComponentEntry> entries)    // ids unique
     final class Loader implements Disposable             // id-keyed diff, transactional reconcile
+
+    // ── Loader composition (D26, upstream's entry/group/isolate/tree in typed form) ──
+    sealed interface ComponentSpec
+        record Entry(String id, Plugin component)        // a plain component
+        record Group(String id, List<ComponentSpec>)     // prefixes children with id+':'
+        record Isolate(Class<?> type, String realm, List<ComponentSpec>)
+            // children load into a derived isolate context; a per-node realm, disposed when
+            // its entries all unload
+        record Include(Path file, Function<Path, List<ComponentSpec>> resolver)
+            // inlines another source resolved against the base directory; the resolver picks
+            // the file format
+    Loader.reconcileTree(List<ComponentSpec>) / reconcileTree(Path baseUrl, List<ComponentSpec>)
+        // flatten, then the D18 engine with per-entry load contexts
 
     public class SupplyConflictException extends CordisException   // D12
     public class CyclicDependencyException extends CordisException // cycle guard (Progress)
@@ -276,6 +327,30 @@ by the module).
     dispose unloads in reverse load order (T21).
 22. Repeat provide: providing the same instance twice under one key makes the first removal
     disposable a no-op; the current one removes the binding (T23).
+23. Event modes: a once listener fires exactly once and then unregisters (filter and manual
+    removal honored); a prepended listener runs before its context's existing listeners, with
+    bubbling direction unchanged; bail short-circuits on the first non-null fold result and
+    skips the ancestors after it; waterfall folds non-null results (null keeps the accumulator)
+    and returns the event unchanged when nobody contributes (T29).
+24. Intercept consumption: intercepts(key) collects the metadata bound along the tree
+    root-first, nearest-last without merging; interceptOf(key) equals the nearer-wins
+    InterceptMetadata monoid over that chain; a chain with mixed kinds keeps the raw values
+    (T31).
+25. Registry view: services() snapshots this context's provided bindings only (ancestors
+    excluded), keyed by the effective store key with the realm override applied; the snapshot
+    is immutable; overwrites and removals are reflected by later snapshots (T32).
+26. Base directory: baseUrl() walks the tree for the nearest binding; withBaseUrl(path) derives
+    a child whose descendants inherit the binding; disposed contexts reject both (T33).
+27. Loader composition: groups prefix children ids with ':' separators; isolation realms load
+    their children into derived contexts so sibling realms coexist without supply conflicts,
+    and a realm is disposed once its entries all unload; includes inline their source resolved
+    against the base directory; duplicate flattened ids fail fast before any change; a failing
+    component rolls the tree reconcile back to the previous set (T33).
+23. Annotation injection: an instance's @Inject fields form one declaration (D21) - populated
+    when every field key resolves, cleared when a relied supply withdraws or the declaration
+    retires, refilled on re-satisfaction; fields hold activation-time snapshots, so an ambient
+    overwrite does not touch an activated declaration, while a supplying fiber's unload drains
+    it through the fiber-level supply relation (T24).
 
 ---
 
@@ -302,8 +377,29 @@ by the module).
 - Landed in v0.2.0: declarative inject with the Algorithm 3/5 drain ordering, the four-state
   lifecycle with inertia, event filters, virtual-thread asynchrony, and the declarative loader
   (D11-D20).
-- Remaining: annotation-based injection and bytecode-level HMR (custom ClassLoader / ModuleLayer
-  evaluation, following the OSGi and pf4j precedents).
+- Landed since (v2.1): runtime-reflection annotation injection - `@Inject` fields assembled by
+  `Injects.injectFields` into one reactive declaration (D21, T24); event dispatch modes - prepend,
+  once, bail, waterfall (D22, T29) - closing the synchronous subset of the upstream dispatch modes
+  recorded in the parity baseline docs/design/upstream-parity.md; intercept-chain consumption -
+  intercepts(key) as the Java form of resolveConfig (D23, T31); the registry view -
+  services() as the typed form of upstream's registry enumeration (D24, T32); the loader
+  composition DSL - group/isolate/tree/include over the D18 engine, with baseUrl derivation
+  (D25, D26, T33).
+- Ecosystem (module-level, outside this core contract; no decision-log entry): cordis4j-langchain4j
+  exposes `CordisTool` services of a session context as LangChain4j tools that follow the
+  reactive-coeffect lifecycle (T25); cordis4j-spring provides a Context bean and @CordisService
+  beans that follow bean lifecycles, withdrawing bindings in the stop phase before any bean is
+  destroyed so the drain keeps boundary 13/14 (T27, T35).
+- HMR (roadmap c, module-level, outside this core contract; no decision-log entry): the evaluation
+  (docs/design/hmr-evaluation.md) and the stage-1 engine (cordis4j-hmr) - a zero-dependency
+  custom ClassLoader engine with jar-granular module classification, loader close-and-collect
+  retraction, and transactional reload over the core Loader (T26).
+- Compile-time injection (paper Section 6.4, module-level, outside this core contract; no
+  decision-log entry): cordis4j-inject-processor validates @Inject fields at compile time
+  (public top-level class, non-static/final/primitive/private fields, named package) and emits a
+  zero-reflection injector per class through the {@code Injects.FieldTarget} accessor shape (T28).
+- Remaining: the ModuleLayer HMR variant (stage 2) with file-granular import-graph classification,
+  and the Quarkus integration (evaluated and deferred, docs/design/quarkus-evaluation.md).
 
 ---
 

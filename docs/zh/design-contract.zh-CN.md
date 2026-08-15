@@ -1,8 +1,9 @@
 # Cordis4j 设计契约（Design Contract）
 
 > 本文档是英文规范本 [../design-contract.md](../design-contract.md) 的中文译本（规范本语言：英文）。
-> 如有歧义，以英文版为准。最近同步：2026-08-14（v2.0 全量）。
-> 状态：**v2.0 冻结**（对应 v0.2.0）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
+> 如有歧义，以英文版为准。最近同步：2026-08-15（v2.1，追加 D21）。
+> 状态：**v2.6 冻结**（对应 v0.2.1）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
+> v2.6 在 v2.5（D25/D26）基础上追加 D27（HMR 类隔离模型）。
 > 语义基线：cordis 论文《A Programming Paradigm for Spatiotemporal Composability》§3–§5（下文引用章节号即论文章节号）；
 > 参考实现：cordiverse/cordis 与 @deepseek-ai/cordis@4.0.1（MIT）。
 > Cordis4j 是论文语义的 **Java 重想**（inspired-by，非逐行移植）；与上游 TS API 的一切差异在 §5 显式声明。
@@ -27,8 +28,12 @@
 
 ### 1.2 范围外（P3）
 
-字节码级热模块替换（§5.2.2；自定义 ClassLoader / ModuleLayer 方案评估，参考 OSGi 与 pf4j 先例）、
-注解/代理式注入、生态集成（Spring、Quarkus、LangChain4j）。
+字节码级热模块替换已落地为独立模块（cordis4j-hmr，docs/design/hmr-evaluation.md 的阶段 1：
+零依赖自定义 ClassLoader 引擎，jar 粒度模块分类与事务性重载）；范围外剩余：ModuleLayer 变体
+（阶段 2）与文件粒度 import 图分类。Quarkus 集成已评估并推迟
+（docs/design/quarkus-evaluation.md 建议在具体部署需要时实现为纯 CDI 模块）。注入的编译期注解
+处理已落地为独立模块（cordis4j-inject-processor，T28）；LangChain4j 工具桥接与 Spring 集成已
+落地为独立模块（cordis4j-langchain4j、cordis4j-spring），处于本核心契约之外。
 
 ---
 
@@ -56,6 +61,13 @@
 | D18 | 声明式加载器 | LoaderConfig/ComponentEntry 按 id 键控 diff；组件实例即版本（换实例即重载）；调和事务性（失败恢复上一配置）；dispose 按装载逆序 | 论文 §5.2.1 / Algorithm 10 的配置级形态；record 相等性是 Java 原生配置 diff |
 | D19 | 线程 | 注册表状态由内部锁保护，获取方向单一（fiber 注册表 → 各上下文 store → 域）；用户代码在锁外执行；provide 触发的反应式通知在该 provide 的监视器释放后运行 | 无锁环；长激活与 teardown（可能 join 任务）从不持有注册表监视器 |
 | D20 | 撤退顺序 | 卸载 fiber 先撤出其供给的全部键（排空全部 dependents，含仍在 LOADING 者——惯性的链式卸载），再 LIFO 撤销自身效应；被排空的 dependent 在其 teardown 中仍可解析该依赖 | 论文 L-Leave/L-Unload 与 Theorem 63 的精确实现 |
+| D21 | 注解式注入 | 实例的 @Inject(qualifier) 字段由 Injects.injectFields(ctx, instance) 装配为一个 D11 声明：激活时以快照填充字段，撤退/退役时清空，再满足时重填；static/final/原始类型字段装配时立即失败；无注解字段为 no-op | 论文 §6.4：语言缺乏透明拦截原语时，认可注解 + 运行时反射中介依赖访问；核心保持零依赖（仅 JDK 反射） |
+| D22 | 事件模式 | on(type, listener, prepend) 插入本 context 既有监听之前；once 仅触发一次后自注销（过滤器生效、手动注销仍可）；第二个函数形监听表（fold）支撑 bail——第一个非 null 结果短路分发（含祖先）——与 waterfall——非 null 结果折叠为下一输入，null 保持累加值；emit 保持 consumer 表路径；冒泡方向保持子→根 | 上游 DispatchMode 的 bail/waterfall 与 prepend 选项及 once 在同步核心的类型化形态（上游对齐基准 docs/design/upstream-parity.md）；parallel/serial 属异步分发，不在范围内 |
+| D23 | Intercept 消费 | Context.intercepts(key) 沿树收集绑定元数据，根在前、最近在后（原始链，不合并）；interceptOf 保持该链上的 nearer-wins 幺半群；调用者以任意策略合并列表 | 上游 Service.resolveConfig 的 Java 形态——链收集即消费语义，合并策略留在调用方（上游对齐基准） |
+| D24 | 注册表视图 | Context.services() 快照本 context 提供的绑定（不含祖先），键为 realm 覆盖后的有效 storeKey；快照不可变；枚举遍历该快照 | 上游 registry values/entries 的类型化形态；解析后的整树视图留待 loader 组合 DSL（对齐 P4-4）需要时再做 |
+| D25 | 基础目录 | Context.baseUrl() 返回本 context 或祖先绑定的最近基础目录（无则空）；Context.withBaseUrl(path) 派生携带它的子 context（同 fork 惯例）；相对配置路径（include 引用）以它解析 | 上游 Context.baseUrl 的不可变派生惯用形态（fork/isolate） |
+| D26 | Loader 组合 | Loader.reconcileTree 把 ComponentSpec 树展平为逐条目装载上下文并经 D18 引擎调和：Group 以 groupId+':' 前缀其子条目 id；Isolate 把子条目装载进派生的 isolate(type, realm) 上下文（每节点一个域，其条目全部卸载后 dispose）；Include 经调用方提供的 resolver 内联另一配置源（相对基础目录解析，不限定文件格式）；展平重复 id 在任何变更前立即失败；失败回滚同 D18 | 上游 entry/group/isolate/tree 配置与 include 指令的类型化形态；平面 reconcile(LoaderConfig) 是同一引擎的单上下文特例 |
+| D27 | HMR 类隔离 | cordis4j-hmr 把每个插件 jar 装入父为 cordis4j-core 加载器的 URLClassLoader：宿主类优先于插件内同名类（插件永远看到宿主 Plugin 类型），插件不能自带宿主依赖的其他版本，跨插件同名类各持副本，无模块封装；回收保持 close-and-collect 与 T26/T34 的 GC 保证 | docs/design/hmr-evaluation.md 第 5 节的阶段 1 模型；child-first（含 cordis4j-core 排除）与 ModuleLayer 升级已在 docs/design/hmr-isolation-evaluation.md 评估并预留——仅在真实需求出现时再动代码 |
 
 ---
 
@@ -102,16 +114,30 @@
             // 返回的 Context 即子上下文（Context extends Disposable）——dispose 即整体丢弃
         <T> Disposable intercept(ServiceKey<T> key, Object metadata)
         <T> Optional<Object> interceptOf(ServiceKey<T> key)   // 沿链解析，见 D17
+        <T> List<Object> intercepts(ServiceKey<T> key)
+            // 原始链：根在前、最近在后；调用方以任意策略合并（D23）
+        Map<ServiceKey<?>, Object> services()
+            // 本 context 提供绑定的不可变快照（不含祖先），键为有效 storeKey（D24）
+
+        -- 空间（§3.3.1）--
+        Optional<Path> baseUrl()          // 沿树最近的基础目录，或空（D25）
+        Context withBaseUrl(Path)         // 派生携带基础目录的子 context
 
         -- 效应（§5.1.1，Algorithm 1）--
         EffectScope effect()
             // 打开效应组。惯用法：try (var fx = ctx.effect()) { fx.track(...); }
             // 关闭/撤销按 LIFO；失败聚合为 DisposeException（T7）
 
-        -- 事件（注册即效应；D3/D16）--
+        -- 事件（注册即效应；D3/D16/D22）--
         <E> Disposable on(Class<E> type, Consumer<E> listener)
         <E> Disposable on(Class<E> type, Predicate<E> filter, Consumer<E> listener)
+        <E> Disposable on(Class<E> type, Consumer<E> listener, boolean prepend)
+        <E> Disposable once(Class<E> type, Consumer<E> listener)          // 触发一次后自注销
+        <E> Disposable once(Class<E> type, Predicate<E> filter, Consumer<E> listener)
+        <E> Disposable fold(Class<E> type, Function<E, E> listener)       // bail/waterfall 表
         <E> void emit(E event)
+        <E> Optional<E> bail(E event)        // 第一个非 null 结果短路（含祖先）
+        <E> E waterfall(E event)             // 非 null 结果折叠；无人贡献时原样返回事件
             // 同步：先本上下文监听器，再沿父链到根（子 emit 触达祖先；祖先 emit 不触达子）
 
         -- 空间（§3.3.1）--
@@ -135,6 +161,20 @@
             // 满足即激活；撤销即反应式卸载（先排空）；未退役未失败时可重激活；
             // 激活失败路由至卸载
 
+        -- 注解式注入（D21，§6.4）--
+        @interface Inject                                // FIELD；String qualifier() 默认 ""
+        public final class Injects
+            static Disposable injectFields(Context ctx, Object instance)
+            // 扫描类层级（至 Object 为止）的 @Inject 字段装配为一个声明；
+            // 以激活时刻快照填充，撤退/退役清空，再满足重填；
+            // static/final/原始类型字段立即失败（IllegalArgumentException）；无注解字段 -> Disposables.none()
+            interface FieldTarget                         // §6.4 的访问器形态
+                ServiceKey<?> key()                      // 字段依赖键
+                void set(Object value)                   // 写入绑定；null 清空
+            static Disposable injectFields(Context ctx, List<FieldTarget> targets)
+            // 显式访问器之上的单一声明：运行时形态包装反射目标，编译期处理器
+            // （cordis4j-inject-processor）生成直接赋值
+
     public final class Contexts
         static Context create()  // 创建根上下文
 
@@ -142,6 +182,17 @@
     record ComponentEntry(String id, Plugin component)   // 实例身份即版本
     record LoaderConfig(List<ComponentEntry> entries)    // id 唯一
     final class Loader implements Disposable             // id 键控 diff，事务性调和
+
+    -- Loader 组合（D26，上游 entry/group/isolate/tree 的类型化形态）--
+    sealed interface ComponentSpec
+        record Entry(String id, Plugin component)        // 普通组件
+        record Group(String id, List<ComponentSpec>)     // 子条目 id 前缀 id+':'
+        record Isolate(Class<?> type, String realm, List<ComponentSpec>)
+            // 子条目装载进派生 isolate 上下文；每节点一个域，其条目全部卸载后 dispose
+        record Include(Path file, Function<Path, List<ComponentSpec>> resolver)
+            // 相对基础目录内联另一配置源；resolver 自选文件格式
+    Loader.reconcileTree(List<ComponentSpec>) / reconcileTree(Path baseUrl, List<ComponentSpec>)
+        // 展平后以逐条目装载上下文跑 D18 引擎
 
     public class SupplyConflictException extends CordisException   // D12
     public class CyclicDependencyException extends CordisException // 环守卫（Progress 定理）
@@ -233,6 +284,22 @@
 21. Loader：reconcile 装载新 id、卸载消失 id、重载换实例条目（实例身份即版本）；失败的 reconcile
     恢复上一配置；dispose 按装载逆序卸载（T21）。
 22. 重复 provide：同实例同键 provide 两次，第一个移除句柄为 no-op；当前句柄才移除绑定（T23）。
+23. 事件模式：once 监听器仅触发一次后自注销（过滤器与手动注销均生效）；prepend 监听器先于
+    本 context 既有监听运行，冒泡方向不变；bail 于第一个非 null 折叠结果短路并跳过其后祖先；
+    waterfall 折叠非 null 结果（null 保持累加值），无人贡献时原样返回事件（T29）。
+24. Intercept 消费：intercepts(key) 沿树收集绑定元数据（根在前、最近在后，不合并）；
+    interceptOf(key) 等于该链上的 nearer-wins InterceptMetadata 幺半群；混合类型链保持原始值
+    （T31）。
+25. 注册表视图：services() 只快照本 context 提供的绑定（不含祖先），键为 realm 覆盖后的有效
+    storeKey；快照不可变；覆盖与移除反映在后续快照（T32）。
+26. 基础目录：baseUrl() 沿树取最近绑定；withBaseUrl(path) 派生子 context 且子孙继承绑定；
+    dispose 后两者拒绝（T33）。
+27. Loader 组合：group 以 ':' 前缀子条目 id；隔离域把子条目装载进派生上下文，兄弟域无供给
+    冲突共存，且域在其条目全部卸载后 dispose；include 相对基础目录内联其源；展平重复 id
+    在任何变更前立即失败；组件失败将树形调和回滚到旧集合（T33）。
+23. 注解式注入：实例的 @Inject 字段构成单一声明（D21）——全部键解析后填充，所依赖供给撤退或
+    声明退役时清空，再满足时重填；字段持有激活时刻快照，故 ambient 覆盖不触碰已激活声明，
+    而供给 fiber 卸载沿 fiber 级供给关系排空它（T24）。
 
 ---
 
@@ -252,8 +319,25 @@
 - 语义化版本：0.x 期间允许破坏性变更，但每次必须更新本契约、决策日志与 CHANGELOG。
 - 跨 P3 的稳定锚点：ServiceKey 形态、Disposable/EffectScope 契约、异常体系、fork 级联语义、
   排空顺序（D20）。
-- P3 入口：字节码级 HMR（自定义 ClassLoader / ModuleLayer 评估，参考 OSGi 与 pf4j 先例）、
-  注解式注入、生态集成（Spring、Quarkus、LangChain4j）。
+- P3 入口：ModuleLayer HMR 变体（阶段 2）与文件粒度 import 图分类、Quarkus 生态集成
+  （已评估并推迟，docs/design/quarkus-evaluation.md）。
+- v2.1 已落地：运行时反射注解式注入——`Injects.injectFields` 将 `@Inject` 字段装配为一个
+  反应式声明（D21、T24）；事件分发模式——prepend、once、bail、waterfall（D22、T29）——补齐
+  上游分发模式的同步子集（对齐基准 docs/design/upstream-parity.md）；intercept 链消费——
+  intercepts(key) 即 resolveConfig 的 Java 形态（D23、T31）；注册表视图——services() 即上游
+  注册表枚举的类型化形态（D24、T32）；loader 组合 DSL——D18 引擎之上的
+  group/isolate/tree/include 与 baseUrl 派生（D25、D26、T33）。
+- 生态（模块级，处于本核心契约之外；不追加决策条目）：cordis4j-langchain4j 将会话上下文的
+  `CordisTool` 服务暴露为遵循反应式协效应生命周期的 LangChain4j 工具（T25）；cordis4j-spring
+  提供 Context bean 与遵循 bean 生命周期的 @CordisService bean，并在任何 bean 销毁前的 stop
+  阶段撤回绑定，使 drain 保持边界 13/14（T27、T35）。
+- HMR（路线图 c，模块级，处于本核心契约之外；不追加决策条目）：评估
+  （docs/design/hmr-evaluation.md）与阶段 1 引擎（cordis4j-hmr）——零依赖自定义 ClassLoader
+  引擎，jar 粒度模块分类、加载器 close-and-collect 回收、基于核心 Loader 的事务性重载（T26）。
+- 编译期注入（论文 §6.4，模块级，处于本核心契约之外；不追加决策条目）：
+  cordis4j-inject-processor 在编译期校验 @Inject 字段（public 顶级类、非
+  static/final/原始类型/private 字段、命名包）并经由 `Injects.FieldTarget` 访问器形态为每个类
+  生成免反射 injector（T28）。
 
 ---
 

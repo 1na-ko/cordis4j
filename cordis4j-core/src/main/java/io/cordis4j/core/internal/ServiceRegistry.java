@@ -68,6 +68,18 @@ final class ServiceRegistry {
     realmOverrides.put(type, Objects.requireNonNull(realm, "realm"));
   }
 
+  /**
+   * Snapshots the bindings this context provides, keyed by their effective store key (the realm
+   * override already applied) - the registry view of the upstream parity baseline.
+   */
+  synchronized Map<ServiceKey<?>, Object> snapshot() {
+    Map<ServiceKey<?>, Object> snapshot = new java.util.LinkedHashMap<>();
+    for (Map.Entry<ServiceKey<?>, Binding> entry : store.entrySet()) {
+      snapshot.put(entry.getKey(), entry.getValue().service());
+    }
+    return snapshot;
+  }
+
   <T> Disposable provide(ServiceKey<T> key, T service) {
     Objects.requireNonNull(service, "service");
     T checked = key.type().cast(service); // fail fast on a key/service type mismatch
@@ -140,7 +152,12 @@ final class ServiceRegistry {
    * merge from the root toward the owner when every one of them is an {@link InterceptMetadata};
    * otherwise the nearest binding wins.
    */
-  Object findIntercept(ServiceKey<?> key) {
+  /**
+   * Collects the interception metadata bound along the tree for a key, from the root to the owner
+   * context: the consumption form of upstream's resolveConfig (decision D23) - callers merge the
+   * list with any policy, for example the nearer-wins monoid of {@link #findIntercept}.
+   */
+  List<Object> findIntercepts(ServiceKey<?> key) {
     List<Object> chain = new ArrayList<>();
     for (ContextImpl context = owner; context != null; context = context.parent) {
       Object metadata;
@@ -151,10 +168,15 @@ final class ServiceRegistry {
         chain.add(metadata);
       }
     }
+    Collections.reverse(chain); // root first: nearer bindings last
+    return chain;
+  }
+
+  Object findIntercept(ServiceKey<?> key) {
+    List<Object> chain = findIntercepts(key);
     if (chain.isEmpty()) {
       return null;
     }
-    Collections.reverse(chain); // root first: nearer bindings merge over outer ones
     Object merged = chain.get(0);
     for (int i = 1; i < chain.size(); i++) {
       Object nearer = chain.get(i);

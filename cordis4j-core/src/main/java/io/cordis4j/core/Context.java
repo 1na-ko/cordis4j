@@ -4,6 +4,9 @@
  */
 package io.cordis4j.core;
 
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
@@ -137,6 +140,16 @@ public interface Context extends Disposable {
   <T> Disposable intercept(ServiceKey<T> key, Object metadata);
 
   /**
+   * Snapshots the service bindings this context provides (decision D24): the registry view of the
+   * upstream parity baseline, keyed by the effective store key (the realm override applied). The
+   * snapshot is immutable and does not include ancestor bindings.
+   *
+   * @return an immutable map of this context's provided bindings, never null
+   * @throws IllegalStateException if this context is disposed
+   */
+  Map<ServiceKey<?>, Object> services();
+
+  /**
    * Returns the interception metadata bound nearest to this context for a key.
    *
    * <p>Experimental in P1.
@@ -148,6 +161,20 @@ public interface Context extends Disposable {
    * @throws NullPointerException if {@code key} is null
    */
   <T> Optional<Object> interceptOf(ServiceKey<T> key);
+
+  /**
+   * Collects the interception metadata bound along the tree for a key, from the root to this
+   * context (decision D23): the consumption form of upstream's resolveConfig. Callers merge the
+   * list with any policy - the {@link #interceptOf} result is exactly the nearer-wins monoid of
+   * {@link InterceptMetadata} over this list.
+   *
+   * @param <T> the service type
+   * @param key the service key
+   * @return the bound metadata, root first and nearest last; empty when none is bound
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code key} is null
+   */
+  <T> List<Object> intercepts(ServiceKey<T> key);
 
   // ── Effects (paper, Section 5.1.1, Algorithm 1) ───────────────────────────
 
@@ -218,6 +245,88 @@ public interface Context extends Disposable {
   <E> Disposable on(Class<E> type, Predicate<E> filter, Consumer<E> listener);
 
   /**
+   * Registers a synchronous listener that runs before the listeners already registered in this
+   * context (decision D22: the prepend option of upstream's dispatch modes). Ancestor listeners
+   * still run after this context's own.
+   *
+   * @param <E> the event type
+   * @param type the event type
+   * @param listener the listener
+   * @param prepend when true, the listener runs before this context's existing listeners
+   * @return a disposable that unregisters the listener
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code type} or {@code listener} is null
+   */
+  <E> Disposable on(Class<E> type, Consumer<E> listener, boolean prepend);
+
+  /**
+   * Registers a one-shot synchronous listener (decision D22): it fires on the first matching event
+   * and unregisters itself, before or after running.
+   *
+   * @param <E> the event type
+   * @param type the event type
+   * @param listener the listener
+   * @return a disposable that unregisters the listener before its first firing
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code type} or {@code listener} is null
+   */
+  <E> Disposable once(Class<E> type, Consumer<E> listener);
+
+  /**
+   * Registers a filtered one-shot synchronous listener: it fires on the first matching, accepted
+   * event and unregisters itself, before or after running.
+   *
+   * @param <E> the event type
+   * @param type the event type
+   * @param filter the predicate an emitted event must satisfy, never null
+   * @param listener the listener
+   * @return a disposable that unregisters the listener before its first firing
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if any argument is null
+   */
+  <E> Disposable once(Class<E> type, Predicate<E> filter, Consumer<E> listener);
+
+  /**
+   * Registers a function-shaped synchronous listener for the {@link #bail(Object)} and {@link
+   * #waterfall(Object)} dispatch modes (decision D22): it receives the event and returns a new
+   * value, or null to make no contribution.
+   *
+   * @param <E> the event type
+   * @param type the event type
+   * @param listener the listener
+   * @return a disposable that unregisters the listener
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code type} or {@code listener} is null
+   */
+  <E> Disposable fold(Class<E> type, Function<E, E> listener);
+
+  /**
+   * Dispatches in bail mode (decision D22, upstream DispatchMode.bail): function listeners of this
+   * context run in registration order, then those of each ancestor; the first non-null result
+   * short-circuits the dispatch and is returned.
+   *
+   * @param <E> the event type
+   * @param event the event to dispatch
+   * @return the first non-null listener result, or empty when nobody contributed
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code event} is null
+   */
+  <E> Optional<E> bail(E event);
+
+  /**
+   * Dispatches in waterfall mode (decision D22, upstream DispatchMode.waterfall): function
+   * listeners fold the event value - a non-null result becomes the next listener's input, this
+   * context first and then each ancestor - and the final value is returned.
+   *
+   * @param <E> the event type
+   * @param event the event to dispatch
+   * @return the folded value; the event itself when no listener contributed
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code event} is null
+   */
+  <E> E waterfall(E event);
+
+  /**
    * Emits an event synchronously to this context and then to each ancestor up to the root.
    *
    * <p>If a listener throws, the exception propagates to the caller and the remaining listeners are
@@ -250,6 +359,26 @@ public interface Context extends Disposable {
    * @return the root context, never null
    */
   Context root();
+
+  /**
+   * Returns the base directory against which relative configuration paths (for example include
+   * references) resolve (decision D25, upstream's Context.baseUrl): the nearest binding of this
+   * context or an ancestor.
+   *
+   * @return the base directory, or empty when none was set
+   */
+  Optional<Path> baseUrl();
+
+  /**
+   * Derives a child context carrying a base directory: it inherits everything from this context
+   * (like {@link #fork()}) and additionally binds {@code baseUrl} for itself and its descendants.
+   *
+   * @param baseUrl the base directory to bind
+   * @return the derived child context, which is itself the disposable that discards it
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code baseUrl} is null
+   */
+  Context withBaseUrl(Path baseUrl);
 
   // ── Composition entry points (paper Algorithm 4) ─────────────────────────
 

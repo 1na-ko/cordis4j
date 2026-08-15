@@ -60,6 +60,16 @@ disappear, or are replaced.
 - `cordis4j-core` — zero-dependency core library (JPMS module `io.cordis4j.core`): effects,
   reactive coeffects, the fiber lifecycle, virtual-thread asynchrony, and the declarative loader.
 - `cordis4j-demo` — end-to-end demos.
+- `cordis4j-langchain4j` — LangChain4j tool bridge: session tools that load, hot-unload, and swap
+  with their plugins (langchain4j-core only; no model provider, runs offline).
+- `cordis4j-hmr` — bytecode-level hot module replacement: loads plugin jars into per-plugin class
+  loaders, swaps fibers transactionally on reload, and collects the replaced code.
+- `cordis4j-spring` — Spring integration: a Context bean and @CordisService beans whose bindings
+  follow the container's lifecycle (spring-beans only; zero code changes to the core).
+- `cordis4j-inject-processor` — compile-time generation for annotation injection: validates
+  @Inject fields at compile time and emits a zero-reflection injector per class.
+- `cordis4j-timer` — reversible timers over the spawn model: one-shot and periodic callbacks are
+  effects whose inverse stops them.
 
 ## Feature map (paper → Cordis4j)
 
@@ -67,6 +77,8 @@ disappear, or are replaced.
 |---|---|---|
 | Revertible effects, LIFO accumulator (§3.1, Alg. 1) | ✅ | `EffectScope`, `Disposable` |
 | Reactive coeffects: satisfaction, notify, refresh (§3.2, Alg. 3) | ✅ | `Context.inject` |
+| Event dispatch modes: prepend, once, bail, waterfall (upstream parity) | ✅ | `Context.on/once/fold/bail/waterfall` (D22) |
+| Annotation-mediated injection (§6.4) | ✅ | `@Inject`, `Injects.injectFields`; compile-time generation in `cordis4j-inject-processor` |
 | Withdrawal drain, provider-teardown ordering (§4.3.1, Th. 63) | ✅ | automatic on unload |
 | Supply uniqueness (§4.2) | ✅ | `SupplyConflictException` |
 | Declaration mediation / capability access (Alg. 6) | ✅ | enforced in declarative fibers |
@@ -75,7 +87,10 @@ disappear, or are replaced.
 | Asynchrony on virtual threads + guard/divert (§4.3.2) | ✅ | `pluginAsync`, `spawn`, `currentFiber` |
 | Isolation realms + interception metadata monoid (§5.1.2) | ✅ | `isolate`, `InterceptMetadata` |
 | Declarative loader, id-keyed diff, transactional reload (§5.2.1, Alg. 10) | ✅ | `Loader` |
-| Bytecode-level hot module replacement (§5.2.2) | 🅿 P3 | ClassLoader/ModuleLayer evaluation |
+| Loader composition DSL: group/isolate/tree/include (upstream parity) | ✅ | `ComponentSpec`, `reconcileTree` (D26) |
+| Bytecode-level hot module replacement (§5.2.2) | ✅ | `HotReloadingLoader` in `cordis4j-hmr` |
+| LangChain4j tool bridge (ecosystem) | ✅ | `CordisToolRegistry` in `cordis4j-langchain4j` |
+| Spring integration (ecosystem) | ✅ | `ContextFactoryBean` in `cordis4j-spring` |
 
 ## Quickstart & demos
 
@@ -97,17 +112,26 @@ mvn -pl cordis4j-demo exec:java
 
 Any of the others with `-Dexec.mainClass=io.cordis4j.demo.<DemoName>`.
 
+`cordis4j-langchain4j` ships `SessionToolDemo` (agent tools that load, hot-unload, and swap
+mid-conversation); run it with `mvn -pl cordis4j-langchain4j exec:java`.
+
 ## Build & quality gates
 
 ```console
-mvn verify   # enforcer + spotless + tests (T1-T23, 70 tests) + jacoco (>= 85%) + javadoc + dependency analysis
+mvn verify   # enforcer + spotless + tests (T1-T33, 129 tests) + jacoco (>= 85%) + javadoc + dependency analysis
 ```
 
 ## Roadmap
 
-- **P3** — bytecode-level hot module replacement (custom ClassLoader / ModuleLayer evaluation,
-  following the OSGi and pf4j precedents), annotation-based injection, and ecosystem
-  integrations (Spring, Quarkus, LangChain4j).
+- **P4 (upstream parity)** — the parity baseline docs/design/upstream-parity.md is fully landed:
+  event modes (D22), the timer module, intercept-chain consumption (D23), registry views (D24),
+  and the loader composition DSL with baseUrl (D25/D26).
+- **P3** — the ModuleLayer HMR variant (stage 2 of `docs/design/hmr-evaluation.md`; stage 1, the
+  zero-dependency ClassLoader engine, has landed as `cordis4j-hmr`) and the Quarkus integration
+  (evaluated and deferred in `docs/design/quarkus-evaluation.md`). The other P3 items have landed:
+  annotation injection (runtime `@Inject`/`Injects` and compile-time
+  `cordis4j-inject-processor`), LangChain4j (`cordis4j-langchain4j`), and Spring
+  (`cordis4j-spring`).
 
 ## Contributing
 
