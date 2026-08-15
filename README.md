@@ -29,7 +29,7 @@ Disposable db = ctx.plugin(new DatabasePlugin());   // → cache activates
 db.dispose();                                       // → dependents drain first, then the provider
 ```
 
-> Status: v0.2.0 - **incubating**. Semantics follow the formal model in
+> Status: v0.3.0 - **incubating**. Semantics follow the formal model in
 > [A Programming Paradigm for Spatiotemporal Composability](https://github.com/cordiverse/paper)
 > (Sections 3-5, Algorithms 1-6); the API is a Java re-imagining, not a line-by-line port of the
 > TypeScript code. See [docs/design-contract.md](docs/design-contract.md) for the frozen contract
@@ -106,7 +106,7 @@ See `cordis4j-demo/src/main/java/io/cordis4j/demo/`:
 Run the default demo (`QuickStart`) with:
 
 ```console
-mvn install -DskipTests    # install cordis4j-core into the local repository once
+mvn install -DskipTests    # install all modules into the local repository once
 mvn -pl cordis4j-demo exec:java
 ```
 
@@ -118,7 +118,7 @@ mid-conversation); run it with `mvn -pl cordis4j-langchain4j exec:java`.
 ## Build & quality gates
 
 ```console
-mvn verify   # enforcer + spotless + tests (T1-T33, 129 tests) + jacoco (>= 85%) + javadoc + dependency analysis
+mvn verify   # enforcer + spotless + tests (T1-T35, 133 tests) + jacoco (>= 85%) + javadoc + dependency analysis
 ```
 
 ## Roadmap
