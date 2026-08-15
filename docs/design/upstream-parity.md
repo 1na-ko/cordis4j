@@ -25,7 +25,7 @@
 | `Context.baseUrl` (config file directory) | absent | Missing; lands with the loader DSL (P4-2) |
 | Events: `on` (prepend/priority options), `once`, dispatch modes `emit` / `bail` / `waterfall` / `parallel` / `serial` | synchronous `on` (+ prepend), `once`, `emit`, `bail`, `waterfall` (D22, T29) | Aligned for the synchronous subset; parallel/serial are async dispatch - not applicable to the synchronous core, revisit with a reactive/async profile |
 | Logger: name hierarchy, levels, diff, exporter extension | `logger(name)` + java.util.logging adapter | Partially aligned: levels and names yes; the exporter extension point is intentionally absent (JVM logging ecosystems - SLF4J/JUL - are the exporters) |
-| Registry: enumerate (`get/has/delete/keys/values/entries/forEach`) | no enumeration API | Missing (P4-2: a registry view over typed keys) |
+| Registry: enumerate (`get/has/delete/keys/values/entries/forEach`) | `services()` snapshot of the context's own bindings, typed keys (D24, T32) | Aligned in the typed form; a resolved whole-tree view stays out of scope until the loader composition DSL needs it |
 | `Inject` decorator + `ctx.inject` reactive declaration | `ctx.inject` + `@Inject` fields + compile-time processor (D21, T24, T28) | Aligned and beyond (compile-time generation) |
 | `plugin(plugin, config)` + `Service.resolveConfig` (intercept-chain config merging) | `plugin(Plugin)` + intercept storage (D17) + `intercepts(key)` chain collection (D23, T31) - callers merge with any policy | Aligned in the Java form: chain collection is the consumption semantics; per-service typed config objects stay the JVM idiom (no weak `config` field to port) |
 | `Service` base: name/config/invoke/check/tracker | `Service` marker with start/stop hooks (D9) | Intentional difference: invoke (callable services) and weak config typing are TypeScript idioms; Java services use constructors and typed config objects |
@@ -78,6 +78,5 @@ equivalent of exporters. Intentional difference; nothing to port.
 - ~~P4-2 (timer module, T30)~~ landed: `cordis4j-timer`.
 - ~~P4-3 (config resolution)~~ landed: `Context.intercepts(key)` collects the intercept chain
   root-first (contract v2.3, D23, T31); merging policy stays with the caller.
-- **P4-4 (loader DSL + registry views)**: group/isolate/tree composition, `include` directives,
-  and a typed registry enumeration - the compositional half of `@cordisjs/loader` and
-  `@cordisjs/group`.
+- **P4-4 (loader DSL)**: group/isolate/tree composition and `include` directives - the
+  compositional half of `@cordisjs/loader`; the registry view landed separately (D24, T32).

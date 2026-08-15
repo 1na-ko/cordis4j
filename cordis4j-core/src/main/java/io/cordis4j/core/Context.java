@@ -5,6 +5,7 @@
 package io.cordis4j.core;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
@@ -136,6 +137,16 @@ public interface Context extends Disposable {
    * @throws NullPointerException if {@code key} or {@code metadata} is null
    */
   <T> Disposable intercept(ServiceKey<T> key, Object metadata);
+
+  /**
+   * Snapshots the service bindings this context provides (decision D24): the registry view of the
+   * upstream parity baseline, keyed by the effective store key (the realm override applied). The
+   * snapshot is immutable and does not include ancestor bindings.
+   *
+   * @return an immutable map of this context's provided bindings, never null
+   * @throws IllegalStateException if this context is disposed
+   */
+  Map<ServiceKey<?>, Object> services();
 
   /**
    * Returns the interception metadata bound nearest to this context for a key.

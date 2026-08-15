@@ -19,6 +19,7 @@ import io.cordis4j.core.TriFunction;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -159,6 +160,12 @@ public final class ContextImpl implements Context {
     Disposable removal = registry.intercept(key, metadata);
     track(removal);
     return removal;
+  }
+
+  @Override
+  public Map<ServiceKey<?>, Object> services() {
+    checkAlive();
+    return java.util.Collections.unmodifiableMap(registry.snapshot());
   }
 
   @Override
