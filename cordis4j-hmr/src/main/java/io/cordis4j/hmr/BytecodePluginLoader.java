@@ -25,6 +25,23 @@ import java.util.jar.JarFile;
  * #load(Path, String)} takes its binary name explicitly. Loading the jar is a revertible effect in
  * the paper's sense: the returned handle holds the code strongly until it is unloaded or replaced,
  * and then lets the garbage collector reclaim it.
+ *
+ * <p><b>Known isolation boundaries</b> (decision D27, docs/design/hmr-evaluation.md section 5):
+ * every jar loads into a plain {@link java.net.URLClassLoader} under standard parent delegation, so
+ *
+ * <ul>
+ *   <li>host classes win - a class the host classpath already provides (all of cordis4j-core, the
+ *       JDK, and the application classpath) resolves from the host loader, and a same-named class
+ *       packaged inside the jar is shadowed and never loaded; plugin code therefore always
+ *       implements the host's {@link Plugin} type, never a copy (pinned by T34);
+ *   <li>plugins cannot ship their own versions of host dependencies;
+ *   <li>cross-plugin same-name classes are distinct copies from sibling per-jar loaders and are not
+ *       interchangeable;
+ *   <li>there is no module encapsulation - reflective access into plugin code is unrestricted.
+ * </ul>
+ *
+ * <p>The child-first and ModuleLayer upgrades are evaluated and reserved in
+ * docs/design/hmr-isolation-evaluation.md; they are code changes only for a real requirement.
  */
 public final class BytecodePluginLoader {
 
