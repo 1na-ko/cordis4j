@@ -7,6 +7,7 @@
 module io.cordis4j.spring {
   requires io.cordis4j.core;
   requires spring.beans;
+  requires spring.context;
 
   exports io.cordis4j.spring;
 }

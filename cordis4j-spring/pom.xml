@@ -31,12 +31,10 @@
       <version>${spring.version}</version>
     </dependency>
     <dependency>
-      <!-- The registrar/factory code only touches spring-beans types; the container
-           implementation (spring-context) is needed by tests and present in any real app. -->
+      <!-- SmartLifecycle (stop-before-destroy withdrawal ordering) lives in spring-context. -->
       <groupId>org.springframework</groupId>
       <artifactId>spring-context</artifactId>
       <version>${spring.version}</version>
-      <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
