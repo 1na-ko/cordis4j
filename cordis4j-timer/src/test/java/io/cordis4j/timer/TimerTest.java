@@ -68,12 +68,15 @@ class TimerTest {
               return Disposables.none();
             });
     Thread.sleep(120);
-    int during = fired.get();
-    assertTrue(during >= 1, "域存活期间定时器必须运行");
+    assertTrue(fired.get() >= 1, "域存活期间定时器必须运行");
 
     plugin.dispose();
+    // The baseline is taken AFTER dispose: an in-flight tick landing just before the
+    // reversion must count toward it, not fail the test (snapshot race, seen on slow CI).
     Thread.sleep(90);
-    assertEquals(during, fired.get(), "插件卸载必须撤销其定时器");
+    int afterDispose = fired.get();
+    Thread.sleep(120); // more than two intervals: nothing new may fire
+    assertEquals(afterDispose, fired.get(), "插件卸载必须撤销其定时器");
   }
 
   @Test
