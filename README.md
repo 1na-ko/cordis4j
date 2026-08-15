@@ -68,6 +68,8 @@ disappear, or are replaced.
   follow the container's lifecycle (spring-beans only; zero code changes to the core).
 - `cordis4j-inject-processor` — compile-time generation for annotation injection: validates
   @Inject fields at compile time and emits a zero-reflection injector per class.
+- `cordis4j-timer` — reversible timers over the spawn model: one-shot and periodic callbacks are
+  effects whose inverse stops them.
 
 ## Feature map (paper → Cordis4j)
 
@@ -75,6 +77,7 @@ disappear, or are replaced.
 |---|---|---|
 | Revertible effects, LIFO accumulator (§3.1, Alg. 1) | ✅ | `EffectScope`, `Disposable` |
 | Reactive coeffects: satisfaction, notify, refresh (§3.2, Alg. 3) | ✅ | `Context.inject` |
+| Event dispatch modes: prepend, once, bail, waterfall (upstream parity) | ✅ | `Context.on/once/fold/bail/waterfall` (D22) |
 | Annotation-mediated injection (§6.4) | ✅ | `@Inject`, `Injects.injectFields`; compile-time generation in `cordis4j-inject-processor` |
 | Withdrawal drain, provider-teardown ordering (§4.3.1, Th. 63) | ✅ | automatic on unload |
 | Supply uniqueness (§4.2) | ✅ | `SupplyConflictException` |
@@ -114,11 +117,14 @@ mid-conversation); run it with `mvn -pl cordis4j-langchain4j exec:java`.
 ## Build & quality gates
 
 ```console
-mvn verify   # enforcer + spotless + tests (T1-T28, 106 tests) + jacoco (>= 85%) + javadoc + dependency analysis
+mvn verify   # enforcer + spotless + tests (T1-T30, 117 tests) + jacoco (>= 85%) + javadoc + dependency analysis
 ```
 
 ## Roadmap
 
+- **P4 (upstream parity)** — the remaining items of docs/design/upstream-parity.md: intercept-chain
+  config resolution (the Java form of `Service.resolveConfig`) and the loader composition DSL
+  (group/isolate/tree/include) with typed registry views.
 - **P3** — the ModuleLayer HMR variant (stage 2 of `docs/design/hmr-evaluation.md`; stage 1, the
   zero-dependency ClassLoader engine, has landed as `cordis4j-hmr`) and the Quarkus integration
   (evaluated and deferred in `docs/design/quarkus-evaluation.md`). The other P3 items have landed:

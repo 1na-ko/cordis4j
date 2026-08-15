@@ -2,8 +2,8 @@
 
 > 本文档是英文规范本 [../design-contract.md](../design-contract.md) 的中文译本（规范本语言：英文）。
 > 如有歧义，以英文版为准。最近同步：2026-08-15（v2.1，追加 D21）。
-> 状态：**v2.1 冻结**（对应 v0.2.1）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
-> v2.1 在 v2.0 基础上追加 D21（注解式注入）。
+> 状态：**v2.2 冻结**（对应 v0.2.1）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
+> v2.2 在 v2.1（D21）基础上追加 D22（事件模式）。
 > 语义基线：cordis 论文《A Programming Paradigm for Spatiotemporal Composability》§3–§5（下文引用章节号即论文章节号）；
 > 参考实现：cordiverse/cordis 与 @deepseek-ai/cordis@4.0.1（MIT）。
 > Cordis4j 是论文语义的 **Java 重想**（inspired-by，非逐行移植）；与上游 TS API 的一切差异在 §5 显式声明。
@@ -62,6 +62,7 @@
 | D19 | 线程 | 注册表状态由内部锁保护，获取方向单一（fiber 注册表 → 各上下文 store → 域）；用户代码在锁外执行；provide 触发的反应式通知在该 provide 的监视器释放后运行 | 无锁环；长激活与 teardown（可能 join 任务）从不持有注册表监视器 |
 | D20 | 撤退顺序 | 卸载 fiber 先撤出其供给的全部键（排空全部 dependents，含仍在 LOADING 者——惯性的链式卸载），再 LIFO 撤销自身效应；被排空的 dependent 在其 teardown 中仍可解析该依赖 | 论文 L-Leave/L-Unload 与 Theorem 63 的精确实现 |
 | D21 | 注解式注入 | 实例的 @Inject(qualifier) 字段由 Injects.injectFields(ctx, instance) 装配为一个 D11 声明：激活时以快照填充字段，撤退/退役时清空，再满足时重填；static/final/原始类型字段装配时立即失败；无注解字段为 no-op | 论文 §6.4：语言缺乏透明拦截原语时，认可注解 + 运行时反射中介依赖访问；核心保持零依赖（仅 JDK 反射） |
+| D22 | 事件模式 | on(type, listener, prepend) 插入本 context 既有监听之前；once 仅触发一次后自注销（过滤器生效、手动注销仍可）；第二个函数形监听表（fold）支撑 bail——第一个非 null 结果短路分发（含祖先）——与 waterfall——非 null 结果折叠为下一输入，null 保持累加值；emit 保持 consumer 表路径；冒泡方向保持子→根 | 上游 DispatchMode 的 bail/waterfall 与 prepend 选项及 once 在同步核心的类型化形态（上游对齐基准 docs/design/upstream-parity.md）；parallel/serial 属异步分发，不在范围内 |
 
 ---
 
@@ -114,10 +115,16 @@
             // 打开效应组。惯用法：try (var fx = ctx.effect()) { fx.track(...); }
             // 关闭/撤销按 LIFO；失败聚合为 DisposeException（T7）
 
-        -- 事件（注册即效应；D3/D16）--
+        -- 事件（注册即效应；D3/D16/D22）--
         <E> Disposable on(Class<E> type, Consumer<E> listener)
         <E> Disposable on(Class<E> type, Predicate<E> filter, Consumer<E> listener)
+        <E> Disposable on(Class<E> type, Consumer<E> listener, boolean prepend)
+        <E> Disposable once(Class<E> type, Consumer<E> listener)          // 触发一次后自注销
+        <E> Disposable once(Class<E> type, Predicate<E> filter, Consumer<E> listener)
+        <E> Disposable fold(Class<E> type, Function<E, E> listener)       // bail/waterfall 表
         <E> void emit(E event)
+        <E> Optional<E> bail(E event)        // 第一个非 null 结果短路（含祖先）
+        <E> E waterfall(E event)             // 非 null 结果折叠；无人贡献时原样返回事件
             // 同步：先本上下文监听器，再沿父链到根（子 emit 触达祖先；祖先 emit 不触达子）
 
         -- 空间（§3.3.1）--
@@ -253,6 +260,9 @@
 21. Loader：reconcile 装载新 id、卸载消失 id、重载换实例条目（实例身份即版本）；失败的 reconcile
     恢复上一配置；dispose 按装载逆序卸载（T21）。
 22. 重复 provide：同实例同键 provide 两次，第一个移除句柄为 no-op；当前句柄才移除绑定（T23）。
+23. 事件模式：once 监听器仅触发一次后自注销（过滤器与手动注销均生效）；prepend 监听器先于
+    本 context 既有监听运行，冒泡方向不变；bail 于第一个非 null 折叠结果短路并跳过其后祖先；
+    waterfall 折叠非 null 结果（null 保持累加值），无人贡献时原样返回事件（T29）。
 23. 注解式注入：实例的 @Inject 字段构成单一声明（D21）——全部键解析后填充，所依赖供给撤退或
     声明退役时清空，再满足时重填；字段持有激活时刻快照，故 ambient 覆盖不触碰已激活声明，
     而供给 fiber 卸载沿 fiber 级供给关系排空它（T24）。
@@ -278,7 +288,8 @@
 - P3 入口：ModuleLayer HMR 变体（阶段 2）与文件粒度 import 图分类、Quarkus 生态集成
   （已评估并推迟，docs/design/quarkus-evaluation.md）。
 - v2.1 已落地：运行时反射注解式注入——`Injects.injectFields` 将 `@Inject` 字段装配为一个
-  反应式声明（D21、T24）。
+  反应式声明（D21、T24）；事件分发模式——prepend、once、bail、waterfall（D22、T29）——补齐
+  上游分发模式的同步子集（对齐基准 docs/design/upstream-parity.md）。
 - 生态（模块级，处于本核心契约之外；不追加决策条目）：cordis4j-langchain4j 将会话上下文的
   `CordisTool` 服务暴露为遵循反应式协效应生命周期的 LangChain4j 工具（T25）；cordis4j-spring
   提供 Context bean 与遵循 bean 生命周期的 @CordisService bean（T27）。

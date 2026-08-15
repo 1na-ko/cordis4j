@@ -21,7 +21,7 @@
 | Proxy 后的内建服务（`ctx.logger`、`ctx.events`、`ctx.reflect`、`ctx.registry`，字符串命名） | `ServiceKey<T>(type, qualifier)` + 类型化 `get`/`find`（D1、D5） | 有意差异：类型键取代字符串名——JVM 优势 |
 | `Context.root` / 原型链 `extend(meta)` | `root()`、`fork()`、`isolate(type, realm)` | 已对齐（Java 形态） |
 | `Context.baseUrl`（配置文件目录） | 无 | 缺失；随 loader DSL 补（P4-2） |
-| 事件：`on`（prepend/priority 选项）、`once`、分发模式 `emit` / `bail` / `waterfall` / `parallel` / `serial` | 同步 `on` + 每监听器过滤器、`emit` | 部分对齐：缺 prepend/once/bail/waterfall（T29，P4-1）；parallel/serial 是异步分发——不适用于同步核心，待异步形态再议 |
+| 事件：`on`（prepend/priority 选项）、`once`、分发模式 `emit` / `bail` / `waterfall` / `parallel` / `serial` | 同步 `on`（含 prepend）、`once`、`emit`、`bail`、`waterfall`（D22、T29） | 同步子集已对齐；parallel/serial 是异步分发——不适用于同步核心，待异步形态再议 |
 | Logger：name 层级、级别、diff、exporter 扩展 | `logger(name)` + java.util.logging 适配 | 部分对齐：级别与 name 有；exporter 扩展点有意缺席（JVM 日志生态——SLF4J/JUL——即 exporter） |
 | 注册表枚举（`get/has/delete/keys/values/entries/forEach`） | 无枚举 API | 缺失（P4-2：类型键之上的注册表视图） |
 | `Inject` 装饰器 + `ctx.inject` 反应式声明 | `ctx.inject` + `@Inject` 字段 + 编译期处理器（D21、T24、T28） | 已对齐并超越（编译期生成） |
@@ -47,7 +47,7 @@
 
 | 上游 | Cordis4j | 状态 |
 |---|---|---|
-| `TimerService`：`setTimeout`/`setInterval`（受跟踪，dispose 时撤销）、`timeout`/`interval` promise 形态 | 无 | 缺失（P4-1/T30：cordis4j-timer 模块，基于核心 spawn/任务模型的可逆定时器） |
+| `TimerService`：`setTimeout`/`setInterval`（受跟踪，dispose 时撤销）、`timeout`/`interval` promise 形态 | `cordis4j-timer`：`Timers.setTimeout`/`setInterval`（spawn 任务，域卸载时撤销）、`Timers.timeout` future 形态（T30） | 已对齐 |
 
 ### 2.5 @cordisjs/logger-console
 
@@ -70,10 +70,8 @@
 
 ## 4. 计划（P4）
 
-- **P4-1（事件模式，T29）**：同步事件总线上的 `once`、prepend 优先级、`bail`（短路）、
-  `waterfall`（折叠返回）——上游分发模式的同步子集。契约 v2.2，决策 D22。
-- **P4-2（定时器模块，T30）**：`cordis4j-timer`，可逆 `setTimeout`/`setInterval`（受跟踪效应，
-  域卸载时取消）与其 promise 形态，镜像 `@cordisjs/timer` 于 spawn/任务模型之上。
+- ~~P4-1（事件模式，T29）~~ 已落地：`once`、prepend、`bail`、`waterfall`（契约 v2.2，D22）。
+- ~~P4-2（定时器模块，T30）~~ 已落地：`cordis4j-timer`。
 - **P4-3（配置解析）**：intercept 元数据的消费语义——服务沿链解析的配置，`Service.resolveConfig`
   的 Java 形态。
 - **P4-4（loader DSL + 注册表视图）**：group/isolate/tree 组合、`include` 指令、类型化注册表
