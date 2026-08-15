@@ -50,6 +50,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/design/quarkus-evaluation.md` (+ zh-CN): the Quarkus integration evaluation - plain CDI
   producers, a CDI portable extension, and a full Quarkus extension compared; recommends a plain
   CDI module mirroring cordis4j-spring when a concrete deployment needs it, deferred for now.
+- Event dispatch modes (core, decision D22, contract v2.2): `on(..., prepend)`, `once` (fires
+  exactly once then unregisters), a function-shaped `fold` listener list, and the `bail`
+  (short-circuit on the first non-null result) and `waterfall` (fold non-null results) dispatch
+  modes - the synchronous subset of upstream's dispatch modes per the parity baseline
+  docs/design/upstream-parity.md (T29).
+- `cordis4j-timer` (new module): reversible timers over the spawn model -
+  `Timers.setTimeout`/`setInterval` are spawned tasks whose handles cancel them and whose owning
+  plugin domains revert them, and `Timers.timeout` returns a future that completes exceptionally
+  with CancellationException on interruption - the JVM form of @cordisjs/timer (T30).
+- `docs/design/upstream-parity.md` (+ zh-CN): the alignment baseline against cordiverse/cordis
+  (9 packages): every upstream capability classified as aligned / partial / intentional JVM
+  difference / missing, with the P4 plan.
+- Intercept-chain consumption (core, decision D23, contract v2.3): `Context.intercepts(key)`
+  collects the interception metadata bound along the tree root-first, nearest-last - the raw
+  chain, unmerged, whose nearer-wins monoid is exactly `interceptOf` - the Java form of
+  upstream's `Service.resolveConfig` (T31).
+- Registry view (core, decision D24, contract v2.4): `Context.services()` snapshots the bindings
+  this context provides - ancestors excluded, keyed by the effective store key - the typed form
+  of upstream's registry enumeration (T32).
+- Loader composition DSL (core, decisions D25/D26, contract v2.5): `ComponentSpec` trees
+  (Entry/Group/Isolate/Include) flattened by `Loader.reconcileTree` into per-entry load
+  contexts reconciled through the D18 engine - groups prefix children ids with ':', isolation
+  realms load into derived contexts (disposed once their entries all unload), and includes
+  inline another source resolved against the base directory; `Context.baseUrl()`/
+  `withBaseUrl(path)` provide the base-directory derivation (T33).
+- HMR isolation boundaries (decision D27, contract v2.6): the stage-1 parent-delegation model is
+  documented in docs/design/hmr-evaluation.md section 5 and in the cordis4j-hmr module itself
+  (BytecodePluginLoader javadoc, module README) - host classes win, no per-plugin dependency
+  versions, no module encapsulation - and pinned by T34; the child-first and ModuleLayer upgrades
+  are evaluated in docs/design/hmr-isolation-evaluation.md (+ zh-CN) and reserved until a real
+  requirement appears.
+- Spring lifecycle coverage (T35): close cascades to the session context while the root survives,
+  repeated container cycles (prototype beans included) leak nothing, and closing a container
+  drains @CordisService dependents with their teardowns still resolving the withdrawn binding
+  (boundaries 13/14).
 
 ### Fixed
 
@@ -60,6 +95,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   leaked every plugin ever unloaded from a long-lived context. Behavior is unchanged; the handle
   is a static class because anonymous classes capture constructor parameters into synthetic final
   fields that would re-pin the fiber. Regression test: `PluginUnloadReleaseTest`.
+- cordis4j-spring withdrawal ordering: `CordisServiceRegistrar` now implements SmartLifecycle and
+  withdraws its bindings in the container's stop phase, before any bean is destroyed - previously
+  the Context bean could dispose first, so a dependent's teardown could no longer resolve the
+  withdrawn binding (core boundary 14). The registrar depends on spring-context for
+  SmartLifecycle; covered by T35.
 
 ## [0.2.0] - 2026-08-14
 
