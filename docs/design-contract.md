@@ -1,7 +1,7 @@
 # Cordis4j Design Contract
 
-> Status: **v2.1, frozen** (for v0.2.1). Any semantic change must append a new decision-log entry
-> (Section 2) and bump this version. v2.1 appends D21 (annotation injection) on top of v2.0.
+> Status: **v2.2, frozen** (for v0.2.1). Any semantic change must append a new decision-log entry
+> (Section 2) and bump this version. v2.2 appends D22 (event modes) on top of v2.1 (D21).
 > Semantic baseline: the Cordis paper, *A Programming Paradigm for Spatiotemporal Composability*,
 > Sections 3-5 (section numbers below refer to that paper); reference implementations:
 > [cordiverse/cordis](https://github.com/cordiverse/cordis) and `@deepseek-ai/cordis`@4.0.1 (MIT).
@@ -73,6 +73,7 @@ contract.
 | D19 | Threading | Registry state is guarded by internal locks in one acquisition direction (fiber registry, then per-context stores, then scopes); user code runs outside them; reactive notifications triggered by a provide run after that provide's monitor is released | No lock cycles; long activations and teardowns (which may join tasks) never hold the registry monitor |
 | D20 | Withdrawal order | Unloading a fiber first withdraws every key it supplies (draining all dependents, including still-LOADING ones - the chained unload of inertia) and only then reverts its effects LIFO; a drain-interrupted dependent still resolves the dependency during its teardown | Paper L-Leave/L-Unload and Theorem 63 exactly |
 | D21 | Annotation injection | @Inject(qualifier) fields of an instance, assembled by Injects.injectFields(ctx, instance) into one D11 declaration: activation populates the fields as snapshots, withdrawal/retirement clears them, re-satisfaction refills; assembly fails fast on static/final/primitive fields, and an instance without annotated fields is a no-op | Paper Section 6.4 sanctions annotation-mediated access via runtime reflection where the language has no transparent interception primitive; keeps core zero-dependency (JDK reflection only) |
+| D22 | Event modes | on(type, listener, prepend) inserts before the context's existing listeners; once fires exactly once then unregisters (filter honored, manual removal still possible); a second, function-shaped listener list (fold) powers bail - the first non-null result short-circuits the dispatch, ancestors included - and waterfall - non-null results fold into the next input, null keeps the accumulator; emit stays the consumer-list path; bubbling stays child-to-root | Upstream DispatchMode bail/waterfall plus the prepend option and once, in the synchronous core's typed form (the upstream parity baseline, docs/design/upstream-parity.md); parallel/serial stay out of scope as async dispatch |
 
 ---
 
@@ -298,6 +299,11 @@ by the module).
     dispose unloads in reverse load order (T21).
 22. Repeat provide: providing the same instance twice under one key makes the first removal
     disposable a no-op; the current one removes the binding (T23).
+23. Event modes: a once listener fires exactly once and then unregisters (filter and manual
+    removal honored); a prepended listener runs before its context's existing listeners, with
+    bubbling direction unchanged; bail short-circuits on the first non-null fold result and
+    skips the ancestors after it; waterfall folds non-null results (null keeps the accumulator)
+    and returns the event unchanged when nobody contributes (T29).
 23. Annotation injection: an instance's @Inject fields form one declaration (D21) - populated
     when every field key resolves, cleared when a relied supply withdraws or the declaration
     retires, refilled on re-satisfaction; fields hold activation-time snapshots, so an ambient
@@ -330,7 +336,9 @@ by the module).
   lifecycle with inertia, event filters, virtual-thread asynchrony, and the declarative loader
   (D11-D20).
 - Landed since (v2.1): runtime-reflection annotation injection - `@Inject` fields assembled by
-  `Injects.injectFields` into one reactive declaration (D21, T24).
+  `Injects.injectFields` into one reactive declaration (D21, T24); event dispatch modes - prepend,
+  once, bail, waterfall (D22, T29) - closing the synchronous subset of the upstream dispatch modes
+  recorded in the parity baseline docs/design/upstream-parity.md.
 - Ecosystem (module-level, outside this core contract; no decision-log entry): cordis4j-langchain4j
   exposes `CordisTool` services of a session context as LangChain4j tools that follow the
   reactive-coeffect lifecycle (T25); cordis4j-spring provides a Context bean and @CordisService

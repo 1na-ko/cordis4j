@@ -61,6 +61,7 @@ db.dispose();                                       // → dependents 先排空�
   生命周期（仅依赖 spring-beans；核心零改动）。
 - `cordis4j-inject-processor` - 注解注入的编译期生成：编译期校验 @Inject 字段并为每个类
   生成免反射 injector。
+- `cordis4j-timer` - 基于 spawn 模型的可逆定时器：一次性与周期回调都是"启动即效应、撤销即停止"。
 
 ## 论文概念覆盖度（→ Cordis4j）
 
@@ -68,6 +69,7 @@ db.dispose();                                       // → dependents 先排空�
 |---|---|---|
 | 可逆效应、LIFO 累积器（§3.1, Alg. 1） | ✅ | `EffectScope`、`Disposable` |
 | 反应式协效应：满足/通知/刷新（§3.2, Alg. 3） | ✅ | `Context.inject` |
+| 事件分发模式：prepend、once、bail、waterfall（上游对齐） | ✅ | `Context.on/once/fold/bail/waterfall`（D22） |
 | 注解式注入（§6.4） | ✅ | `@Inject`、`Injects.injectFields`；编译期生成见 `cordis4j-inject-processor` |
 | 撤退排空、provider 卸载顺序（§4.3.1, Th. 63） | ✅ | 卸载时自动执行 |
 | 供给唯一性（§4.2） | ✅ | `SupplyConflictException` |
@@ -107,11 +109,14 @@ mvn -pl cordis4j-demo exec:java
 ## 构建与质量门禁
 
 ```console
-mvn verify   # enforcer + spotless + 测试（T1-T28，共 106 个）+ jacoco（>= 85%）+ javadoc + 依赖分析
+mvn verify   # enforcer + spotless + 测试（T1-T30，共 117 个）+ jacoco（>= 85%）+ javadoc + 依赖分析
 ```
 
 ## 路线图
 
+- **P4（上游对齐）** - docs/design/upstream-parity.md 的剩余项：intercept 链配置解析
+  （`Service.resolveConfig` 的 Java 形态）与 loader 组合 DSL（group/isolate/tree/include）
+  及类型化注册表视图。
 - **P3** - ModuleLayer HMR 变体（`docs/design/hmr-evaluation.md` 的阶段 2；阶段 1 零依赖
   ClassLoader 引擎已落地为 `cordis4j-hmr`）与 Quarkus 生态集成（已评估并推迟，
   `docs/design/quarkus-evaluation.md`）。其余 P3 项已落地：注解注入（运行时

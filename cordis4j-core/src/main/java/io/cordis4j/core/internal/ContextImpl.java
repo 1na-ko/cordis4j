@@ -184,9 +184,59 @@ public final class ContextImpl implements Context {
     Objects.requireNonNull(type, "type");
     Objects.requireNonNull(filter, "filter");
     Objects.requireNonNull(listener, "listener");
-    Disposable registration = events.on(type, filter, listener);
+    Disposable registration = events.on(type, filter, listener, false);
     track(registration);
     return registration;
+  }
+
+  @Override
+  public <E> Disposable on(Class<E> type, Consumer<E> listener, boolean prepend) {
+    checkAlive();
+    Objects.requireNonNull(type, "type");
+    Objects.requireNonNull(listener, "listener");
+    Disposable registration = events.on(type, event -> true, listener, prepend);
+    track(registration);
+    return registration;
+  }
+
+  @Override
+  public <E> Disposable once(Class<E> type, Consumer<E> listener) {
+    return once(type, event -> true, listener);
+  }
+
+  @Override
+  public <E> Disposable once(Class<E> type, Predicate<E> filter, Consumer<E> listener) {
+    checkAlive();
+    Objects.requireNonNull(type, "type");
+    Objects.requireNonNull(filter, "filter");
+    Objects.requireNonNull(listener, "listener");
+    Disposable registration = events.once(type, filter, listener);
+    track(registration);
+    return registration;
+  }
+
+  @Override
+  public <E> Disposable fold(Class<E> type, Function<E, E> listener) {
+    checkAlive();
+    Objects.requireNonNull(type, "type");
+    Objects.requireNonNull(listener, "listener");
+    Disposable registration = events.fold(type, listener);
+    track(registration);
+    return registration;
+  }
+
+  @Override
+  public <E> Optional<E> bail(E event) {
+    checkAlive();
+    Objects.requireNonNull(event, "event");
+    return events.bail(event);
+  }
+
+  @Override
+  public <E> E waterfall(E event) {
+    checkAlive();
+    Objects.requireNonNull(event, "event");
+    return events.waterfall(event);
   }
 
   @Override

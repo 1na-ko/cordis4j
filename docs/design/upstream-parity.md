@@ -23,7 +23,7 @@
 | Built-in services behind a Proxy (`ctx.logger`, `ctx.events`, `ctx.reflect`, `ctx.registry`, string-named) | `ServiceKey<T>(type, qualifier)` + typed `get`/`find` (D1, D5) | Intentional difference: typed keys replace string names - the JVM advantage |
 | `Context.root` / prototype-chain `extend(meta)` | `root()`, `fork()`, `isolate(type, realm)` | Aligned (Java form) |
 | `Context.baseUrl` (config file directory) | absent | Missing; lands with the loader DSL (P4-2) |
-| Events: `on` (prepend/priority options), `once`, dispatch modes `emit` / `bail` / `waterfall` / `parallel` / `serial` | synchronous `on` + per-listener filter, `emit` | Partially aligned: prepend/once/bail/waterfall missing (T29, P4-1); parallel/serial are async dispatch - not applicable to the synchronous core, revisit with a reactive/async profile |
+| Events: `on` (prepend/priority options), `once`, dispatch modes `emit` / `bail` / `waterfall` / `parallel` / `serial` | synchronous `on` (+ prepend), `once`, `emit`, `bail`, `waterfall` (D22, T29) | Aligned for the synchronous subset; parallel/serial are async dispatch - not applicable to the synchronous core, revisit with a reactive/async profile |
 | Logger: name hierarchy, levels, diff, exporter extension | `logger(name)` + java.util.logging adapter | Partially aligned: levels and names yes; the exporter extension point is intentionally absent (JVM logging ecosystems - SLF4J/JUL - are the exporters) |
 | Registry: enumerate (`get/has/delete/keys/values/entries/forEach`) | no enumeration API | Missing (P4-2: a registry view over typed keys) |
 | `Inject` decorator + `ctx.inject` reactive declaration | `ctx.inject` + `@Inject` fields + compile-time processor (D21, T24, T28) | Aligned and beyond (compile-time generation) |
@@ -49,7 +49,7 @@
 
 | Upstream | Cordis4j | Status |
 |---|---|---|
-| `TimerService`: `setTimeout`/`setInterval` (tracked, reverted on dispose), `timeout`/`interval` promise forms | absent | Missing (P4-1/T30: cordis4j-timer module, reversible timers over the core's spawn/task model) |
+| `TimerService`: `setTimeout`/`setInterval` (tracked, reverted on dispose), `timeout`/`interval` promise forms | `cordis4j-timer`: `Timers.setTimeout`/`setInterval` (spawned tasks, reverted on domain unload), `Timers.timeout` future form (T30) | Aligned |
 
 ### 2.5 @cordisjs/logger-console
 
@@ -74,12 +74,8 @@ equivalent of exporters. Intentional difference; nothing to port.
 
 ## 4. Plan (P4)
 
-- **P4-1 (event modes, T29)**: `once`, prepend priority, `bail` (short-circuit), and `waterfall`
-  (folded return) on the synchronous event bus - the synchronous subset of upstream's dispatch
-  modes. Contract v2.2, decision D22.
-- **P4-2 (timer module, T30)**: `cordis4j-timer` with reversible `setTimeout`/`setInterval`
-  (tracked effects, cancelled on domain unload) and their promise forms, mirroring
-  `@cordisjs/timer` on the spawn/task model.
+- ~~P4-1 (event modes, T29)~~ landed: `once`, prepend, `bail`, `waterfall` (contract v2.2, D22).
+- ~~P4-2 (timer module, T30)~~ landed: `cordis4j-timer`.
 - **P4-3 (config resolution)**: the consumption semantics of intercept metadata - a
   chain-resolved config for services, the Java form of `Service.resolveConfig`.
 - **P4-4 (loader DSL + registry views)**: group/isolate/tree composition, `include` directives,
