@@ -2,8 +2,8 @@
 
 > 本文档是英文规范本 [../design-contract.md](../design-contract.md) 的中文译本（规范本语言：英文）。
 > 如有歧义，以英文版为准。最近同步：2026-08-15（v2.1，追加 D21）。
-> 状态：**v2.3 冻结**（对应 v0.2.1）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
-> v2.3 在 v2.2（D22）基础上追加 D23（intercept 链消费）。
+> 状态：**v2.4 冻结**（对应 v0.2.1）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
+> v2.4 在 v2.3（D23）基础上追加 D24（注册表视图）。
 > 语义基线：cordis 论文《A Programming Paradigm for Spatiotemporal Composability》§3–§5（下文引用章节号即论文章节号）；
 > 参考实现：cordiverse/cordis 与 @deepseek-ai/cordis@4.0.1（MIT）。
 > Cordis4j 是论文语义的 **Java 重想**（inspired-by，非逐行移植）；与上游 TS API 的一切差异在 §5 显式声明。
@@ -64,6 +64,7 @@
 | D21 | 注解式注入 | 实例的 @Inject(qualifier) 字段由 Injects.injectFields(ctx, instance) 装配为一个 D11 声明：激活时以快照填充字段，撤退/退役时清空，再满足时重填；static/final/原始类型字段装配时立即失败；无注解字段为 no-op | 论文 §6.4：语言缺乏透明拦截原语时，认可注解 + 运行时反射中介依赖访问；核心保持零依赖（仅 JDK 反射） |
 | D22 | 事件模式 | on(type, listener, prepend) 插入本 context 既有监听之前；once 仅触发一次后自注销（过滤器生效、手动注销仍可）；第二个函数形监听表（fold）支撑 bail——第一个非 null 结果短路分发（含祖先）——与 waterfall——非 null 结果折叠为下一输入，null 保持累加值；emit 保持 consumer 表路径；冒泡方向保持子→根 | 上游 DispatchMode 的 bail/waterfall 与 prepend 选项及 once 在同步核心的类型化形态（上游对齐基准 docs/design/upstream-parity.md）；parallel/serial 属异步分发，不在范围内 |
 | D23 | Intercept 消费 | Context.intercepts(key) 沿树收集绑定元数据，根在前、最近在后（原始链，不合并）；interceptOf 保持该链上的 nearer-wins 幺半群；调用者以任意策略合并列表 | 上游 Service.resolveConfig 的 Java 形态——链收集即消费语义，合并策略留在调用方（上游对齐基准） |
+| D24 | 注册表视图 | Context.services() 快照本 context 提供的绑定（不含祖先），键为 realm 覆盖后的有效 storeKey；快照不可变；枚举遍历该快照 | 上游 registry values/entries 的类型化形态；解析后的整树视图留待 loader 组合 DSL（对齐 P4-4）需要时再做 |
 
 ---
 
@@ -112,6 +113,8 @@
         <T> Optional<Object> interceptOf(ServiceKey<T> key)   // 沿链解析，见 D17
         <T> List<Object> intercepts(ServiceKey<T> key)
             // 原始链：根在前、最近在后；调用方以任意策略合并（D23）
+        Map<ServiceKey<?>, Object> services()
+            // 本 context 提供绑定的不可变快照（不含祖先），键为有效 storeKey（D24）
 
         -- 效应（§5.1.1，Algorithm 1）--
         EffectScope effect()
@@ -269,6 +272,8 @@
 24. Intercept 消费：intercepts(key) 沿树收集绑定元数据（根在前、最近在后，不合并）；
     interceptOf(key) 等于该链上的 nearer-wins InterceptMetadata 幺半群；混合类型链保持原始值
     （T31）。
+25. 注册表视图：services() 只快照本 context 提供的绑定（不含祖先），键为 realm 覆盖后的有效
+    storeKey；快照不可变；覆盖与移除反映在后续快照（T32）。
 23. 注解式注入：实例的 @Inject 字段构成单一声明（D21）——全部键解析后填充，所依赖供给撤退或
     声明退役时清空，再满足时重填；字段持有激活时刻快照，故 ambient 覆盖不触碰已激活声明，
     而供给 fiber 卸载沿 fiber 级供给关系排空它（T24）。
@@ -296,7 +301,8 @@
 - v2.1 已落地：运行时反射注解式注入——`Injects.injectFields` 将 `@Inject` 字段装配为一个
   反应式声明（D21、T24）；事件分发模式——prepend、once、bail、waterfall（D22、T29）——补齐
   上游分发模式的同步子集（对齐基准 docs/design/upstream-parity.md）；intercept 链消费——
-  intercepts(key) 即 resolveConfig 的 Java 形态（D23、T31）。
+  intercepts(key) 即 resolveConfig 的 Java 形态（D23、T31）；注册表视图——services() 即上游
+  注册表枚举的类型化形态（D24、T32）。
 - 生态（模块级，处于本核心契约之外；不追加决策条目）：cordis4j-langchain4j 将会话上下文的
   `CordisTool` 服务暴露为遵循反应式协效应生命周期的 LangChain4j 工具（T25）；cordis4j-spring
   提供 Context bean 与遵循 bean 生命周期的 @CordisService bean（T27）。

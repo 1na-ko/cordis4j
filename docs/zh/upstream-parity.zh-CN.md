@@ -23,7 +23,7 @@
 | `Context.baseUrl`（配置文件目录） | 无 | 缺失；随 loader DSL 补（P4-2） |
 | 事件：`on`（prepend/priority 选项）、`once`、分发模式 `emit` / `bail` / `waterfall` / `parallel` / `serial` | 同步 `on`（含 prepend）、`once`、`emit`、`bail`、`waterfall`（D22、T29） | 同步子集已对齐；parallel/serial 是异步分发——不适用于同步核心，待异步形态再议 |
 | Logger：name 层级、级别、diff、exporter 扩展 | `logger(name)` + java.util.logging 适配 | 部分对齐：级别与 name 有；exporter 扩展点有意缺席（JVM 日志生态——SLF4J/JUL——即 exporter） |
-| 注册表枚举（`get/has/delete/keys/values/entries/forEach`） | 无枚举 API | 缺失（P4-2：类型键之上的注册表视图） |
+| 注册表枚举（`get/has/delete/keys/values/entries/forEach`） | `services()` 快照本 context 绑定，类型键（D24、T32） | 类型化形态已对齐；解析后的整树视图留待 loader 组合 DSL 需要时再做 |
 | `Inject` 装饰器 + `ctx.inject` 反应式声明 | `ctx.inject` + `@Inject` 字段 + 编译期处理器（D21、T24、T28） | 已对齐并超越（编译期生成） |
 | `plugin(plugin, config)` + `Service.resolveConfig`（intercept 链配置合并） | `plugin(Plugin)` + intercept 存储（D17）+ `intercepts(key)` 链收集（D23、T31）——调用方以任意策略合并 | Java 形态已对齐：链收集即消费语义；每服务类型化配置对象仍是 JVM 惯用（无需移植弱类型 config 字段） |
 | `Service` 基类：name/config/invoke/check/tracker | `Service` 标记接口 + start/stop 钩子（D9） | 有意差异：invoke（可调用服务）与弱类型配置是 TS 惯用；Java 服务用构造器与类型化配置对象 |
@@ -74,5 +74,5 @@
 - ~~P4-2（定时器模块，T30）~~ 已落地：`cordis4j-timer`。
 - ~~P4-3（配置解析）~~ 已落地：`Context.intercepts(key)` 根在前收集 intercept 链（契约 v2.3，
   D23、T31）；合并策略留在调用方。
-- **P4-4（loader DSL + 注册表视图）**：group/isolate/tree 组合、`include` 指令、类型化注册表
-  枚举——`@cordisjs/loader` 与 `@cordisjs/group` 的组合半程。
+- **P4-4（loader DSL）**：group/isolate/tree 组合与 `include` 指令——`@cordisjs/loader` 的
+  组合半程；注册表视图已单独落地（D24、T32）。

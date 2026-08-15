@@ -68,6 +68,18 @@ final class ServiceRegistry {
     realmOverrides.put(type, Objects.requireNonNull(realm, "realm"));
   }
 
+  /**
+   * Snapshots the bindings this context provides, keyed by their effective store key (the realm
+   * override already applied) - the registry view of the upstream parity baseline.
+   */
+  synchronized Map<ServiceKey<?>, Object> snapshot() {
+    Map<ServiceKey<?>, Object> snapshot = new java.util.LinkedHashMap<>();
+    for (Map.Entry<ServiceKey<?>, Binding> entry : store.entrySet()) {
+      snapshot.put(entry.getKey(), entry.getValue().service());
+    }
+    return snapshot;
+  }
+
   <T> Disposable provide(ServiceKey<T> key, T service) {
     Objects.requireNonNull(service, "service");
     T checked = key.type().cast(service); // fail fast on a key/service type mismatch

@@ -1,8 +1,7 @@
 # Cordis4j Design Contract
 
-> Status: **v2.3, frozen** (for v0.2.1). Any semantic change must append a new decision-log entry
-> (Section 2) and bump this version. v2.3 appends D23 (intercept-chain consumption) on top of
-> v2.2 (D22).
+> Status: **v2.4, frozen** (for v0.2.1). Any semantic change must append a new decision-log entry
+> (Section 2) and bump this version. v2.4 appends D24 (registry view) on top of v2.3 (D23).
 > Semantic baseline: the Cordis paper, *A Programming Paradigm for Spatiotemporal Composability*,
 > Sections 3-5 (section numbers below refer to that paper); reference implementations:
 > [cordiverse/cordis](https://github.com/cordiverse/cordis) and `@deepseek-ai/cordis`@4.0.1 (MIT).
@@ -76,6 +75,7 @@ contract.
 | D21 | Annotation injection | @Inject(qualifier) fields of an instance, assembled by Injects.injectFields(ctx, instance) into one D11 declaration: activation populates the fields as snapshots, withdrawal/retirement clears them, re-satisfaction refills; assembly fails fast on static/final/primitive fields, and an instance without annotated fields is a no-op | Paper Section 6.4 sanctions annotation-mediated access via runtime reflection where the language has no transparent interception primitive; keeps core zero-dependency (JDK reflection only) |
 | D22 | Event modes | on(type, listener, prepend) inserts before the context's existing listeners; once fires exactly once then unregisters (filter honored, manual removal still possible); a second, function-shaped listener list (fold) powers bail - the first non-null result short-circuits the dispatch, ancestors included - and waterfall - non-null results fold into the next input, null keeps the accumulator; emit stays the consumer-list path; bubbling stays child-to-root | Upstream DispatchMode bail/waterfall plus the prepend option and once, in the synchronous core's typed form (the upstream parity baseline, docs/design/upstream-parity.md); parallel/serial stay out of scope as async dispatch |
 | D23 | Intercept consumption | Context.intercepts(key) collects the interception metadata bound along the tree root-first, nearest-last (the raw chain, no merging); interceptOf stays the nearer-wins monoid over that chain; callers merge the list with any policy | The Java form of upstream's Service.resolveConfig - chain collection is the consumption semantics, merging policy stays in the caller (the upstream parity baseline) |
+| D24 | Registry view | Context.services() snapshots the bindings this context provides (ancestors excluded), keyed by the effective store key with the realm override applied; the snapshot is immutable; enumeration walks the snapshot | The typed form of upstream's registry values/entries; a resolved whole-tree view stays out of scope until the loader composition DSL (parity P4-4) needs it |
 
 ---
 
@@ -136,6 +136,9 @@ by the module).
             // queries interception metadata walking up the tree; first hit wins; empty if none
         <T> List<Object> intercepts(ServiceKey<T> key)
             // the raw chain root-first, nearest-last; callers merge with any policy (D23)
+        Map<ServiceKey<?>, Object> services()
+            // immutable snapshot of this context's provided bindings (ancestors excluded),
+            // keyed by the effective store key (D24)
 
         -- Effects (Section 5.1.1, Algorithm 1) --
         EffectScope effect()
@@ -312,6 +315,9 @@ by the module).
     root-first, nearest-last without merging; interceptOf(key) equals the nearer-wins
     InterceptMetadata monoid over that chain; a chain with mixed kinds keeps the raw values
     (T31).
+25. Registry view: services() snapshots this context's provided bindings only (ancestors
+    excluded), keyed by the effective store key with the realm override applied; the snapshot
+    is immutable; overwrites and removals are reflected by later snapshots (T32).
 23. Annotation injection: an instance's @Inject fields form one declaration (D21) - populated
     when every field key resolves, cleared when a relied supply withdraws or the declaration
     retires, refilled on re-satisfaction; fields hold activation-time snapshots, so an ambient
@@ -347,7 +353,8 @@ by the module).
   `Injects.injectFields` into one reactive declaration (D21, T24); event dispatch modes - prepend,
   once, bail, waterfall (D22, T29) - closing the synchronous subset of the upstream dispatch modes
   recorded in the parity baseline docs/design/upstream-parity.md; intercept-chain consumption -
-  intercepts(key) as the Java form of resolveConfig (D23, T31).
+  intercepts(key) as the Java form of resolveConfig (D23, T31); the registry view -
+  services() as the typed form of upstream's registry enumeration (D24, T32).
 - Ecosystem (module-level, outside this core contract; no decision-log entry): cordis4j-langchain4j
   exposes `CordisTool` services of a session context as LangChain4j tools that follow the
   reactive-coeffect lifecycle (T25); cordis4j-spring provides a Context bean and @CordisService
