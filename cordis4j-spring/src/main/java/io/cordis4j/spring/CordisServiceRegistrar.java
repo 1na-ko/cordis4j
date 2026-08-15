@@ -14,6 +14,7 @@ import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.BeanFactoryAware;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.config.BeanPostProcessor;
+import org.springframework.context.SmartLifecycle;
 
 /**
  * Provides {@link CordisService}-annotated beans into the container's cordis4j {@link Context}
@@ -27,7 +28,7 @@ import org.springframework.beans.factory.config.BeanPostProcessor;
  * before the context itself is disposed.
  */
 public final class CordisServiceRegistrar
-    implements BeanPostProcessor, BeanFactoryAware, DisposableBean {
+    implements BeanPostProcessor, BeanFactoryAware, DisposableBean, SmartLifecycle {
 
   private BeanFactory beanFactory;
   private Context context;
@@ -62,10 +63,34 @@ public final class CordisServiceRegistrar
   /** Withdraws every provided binding in reverse provisioning order. */
   @Override
   public void destroy() {
+    withdraw();
+  }
+
+  /**
+   * Withdraws the bindings during the container's stop phase, which runs before any bean is
+   * destroyed: the withdrawal drain therefore happens while the cordis4j context is still alive, so
+   * dependents' teardowns resolve the withdrawn bindings (core boundary semantics 13/14).
+   */
+  @Override
+  public void stop() {
+    withdraw();
+  }
+
+  private void withdraw() {
     for (int i = removals.size() - 1; i >= 0; i--) {
       removals.get(i).dispose();
     }
     removals.clear();
+  }
+
+  @Override
+  public synchronized boolean isRunning() {
+    return !removals.isEmpty(); // running while bindings are live: stop() withdraws them
+  }
+
+  @Override
+  public void start() {
+    // nothing to start: bindings appear as beans initialize
   }
 
   private Context context() {
