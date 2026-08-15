@@ -2,8 +2,8 @@
 
 > 本文档是英文规范本 [../design-contract.md](../design-contract.md) 的中文译本（规范本语言：英文）。
 > 如有歧义，以英文版为准。最近同步：2026-08-15（v2.1，追加 D21）。
-> 状态：**v2.5 冻结**（对应 v0.2.1）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
-> v2.5 在 v2.4（D24）基础上追加 D25（baseUrl 派生）与 D26（loader 组合 DSL）。
+> 状态：**v2.6 冻结**（对应 v0.2.1）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
+> v2.6 在 v2.5（D25/D26）基础上追加 D27（HMR 类隔离模型）。
 > 语义基线：cordis 论文《A Programming Paradigm for Spatiotemporal Composability》§3–§5（下文引用章节号即论文章节号）；
 > 参考实现：cordiverse/cordis 与 @deepseek-ai/cordis@4.0.1（MIT）。
 > Cordis4j 是论文语义的 **Java 重想**（inspired-by，非逐行移植）；与上游 TS API 的一切差异在 §5 显式声明。
@@ -67,6 +67,7 @@
 | D24 | 注册表视图 | Context.services() 快照本 context 提供的绑定（不含祖先），键为 realm 覆盖后的有效 storeKey；快照不可变；枚举遍历该快照 | 上游 registry values/entries 的类型化形态；解析后的整树视图留待 loader 组合 DSL（对齐 P4-4）需要时再做 |
 | D25 | 基础目录 | Context.baseUrl() 返回本 context 或祖先绑定的最近基础目录（无则空）；Context.withBaseUrl(path) 派生携带它的子 context（同 fork 惯例）；相对配置路径（include 引用）以它解析 | 上游 Context.baseUrl 的不可变派生惯用形态（fork/isolate） |
 | D26 | Loader 组合 | Loader.reconcileTree 把 ComponentSpec 树展平为逐条目装载上下文并经 D18 引擎调和：Group 以 groupId+':' 前缀其子条目 id；Isolate 把子条目装载进派生的 isolate(type, realm) 上下文（每节点一个域，其条目全部卸载后 dispose）；Include 经调用方提供的 resolver 内联另一配置源（相对基础目录解析，不限定文件格式）；展平重复 id 在任何变更前立即失败；失败回滚同 D18 | 上游 entry/group/isolate/tree 配置与 include 指令的类型化形态；平面 reconcile(LoaderConfig) 是同一引擎的单上下文特例 |
+| D27 | HMR 类隔离 | cordis4j-hmr 把每个插件 jar 装入父为 cordis4j-core 加载器的 URLClassLoader：宿主类优先于插件内同名类（插件永远看到宿主 Plugin 类型），插件不能自带宿主依赖的其他版本，跨插件同名类各持副本，无模块封装；回收保持 close-and-collect 与 T26/T34 的 GC 保证 | docs/design/hmr-evaluation.md 第 5 节的阶段 1 模型；child-first（含 cordis4j-core 排除）与 ModuleLayer 升级已在 docs/design/hmr-isolation-evaluation.md 评估并预留——仅在真实需求出现时再动代码 |
 
 ---
 
@@ -328,7 +329,8 @@
   group/isolate/tree/include 与 baseUrl 派生（D25、D26、T33）。
 - 生态（模块级，处于本核心契约之外；不追加决策条目）：cordis4j-langchain4j 将会话上下文的
   `CordisTool` 服务暴露为遵循反应式协效应生命周期的 LangChain4j 工具（T25）；cordis4j-spring
-  提供 Context bean 与遵循 bean 生命周期的 @CordisService bean（T27）。
+  提供 Context bean 与遵循 bean 生命周期的 @CordisService bean，并在任何 bean 销毁前的 stop
+  阶段撤回绑定，使 drain 保持边界 13/14（T27、T35）。
 - HMR（路线图 c，模块级，处于本核心契约之外；不追加决策条目）：评估
   （docs/design/hmr-evaluation.md）与阶段 1 引擎（cordis4j-hmr）——零依赖自定义 ClassLoader
   引擎，jar 粒度模块分类、加载器 close-and-collect 回收、基于核心 Loader 的事务性重载（T26）。

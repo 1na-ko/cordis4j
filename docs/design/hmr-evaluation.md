@@ -130,7 +130,31 @@ overlaps the lifecycle that cordis4j already owns. Both are recorded here so the
 need to be re-litigated; pf4j remains a useful precedent for per-plugin loader and unload
 discipline (its 3.14.0 loader-nulling change mirrors Stage 1's retract step).
 
-## 5. References
+## 5. Known isolation boundaries (stage 1)
+
+Stage 1's engine (cordis4j-hmr) loads every plugin jar into a plain `URLClassLoader` whose parent
+is the cordis4j-core loader, i.e. standard parent delegation:
+
+- **Host classes win**: a class the host classpath already provides (all of cordis4j-core, the
+  JDK, and anything else on the application classpath) is resolved from the host loader; a
+  same-named class packaged inside a plugin jar is shadowed and never loaded from the jar.
+  Plugin code therefore always implements the host's `Plugin` type - never a copy - which is what
+  makes instance identity and the GC-collection guarantees of T26 hold.
+- **No inter-plugin arbitration**: two plugin jars shipping the same fully qualified class each
+  load their own copy from their own loader (per-jar loaders are siblings, not a chain), so
+  same-named classes across plugins are distinct types and are not interchangeable.
+- **No dependency version arbitration**: a plugin's dependencies must come from the host
+  classpath; a plugin cannot ship its own version of a host class.
+- **No module encapsulation**: reflective access into plugins is unrestricted (unnamed modules),
+  unlike ModuleLayer's strong encapsulation.
+
+Not supported in stage 1, by design (see the stage-2 evaluation in
+docs/design/hmr-isolation-evaluation.md): cross-plugin class conflicts resolved by an
+intermediate loader, per-plugin versions of the same dependency, and strong encapsulation. These
+are the exact capabilities ModuleLayer provides, and the upgrade path is reserved in decision
+D27.
+
+## 6. References
 
 - Paper: A Programming Paradigm for Spatiotemporal Composability, Section 5.2.2,
   https://github.com/cordiverse/paper

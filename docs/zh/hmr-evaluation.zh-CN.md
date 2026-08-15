@@ -104,7 +104,24 @@ HMR 落地为独立模块 `cordis4j-hmr`，两阶段推进，均不新增运行�
 重叠。两者结论记录在此，避免日后重新论证；pf4j 仍是每插件加载器与卸载纪律的有益先例
 （其 3.14.0 置空加载器的改动与阶段 1 的回收步骤同构）。
 
-## 5. 参考
+## 5. 已知隔离边界（阶段 1）
+
+阶段 1 引擎（cordis4j-hmr）把每个插件 jar 装入普通 `URLClassLoader`，父加载器为
+cordis4j-core 的加载器，即标准父委派：
+
+- **宿主类优先**：宿主 classpath 已提供的类（全部 cordis4j-core、JDK 与应用 classpath 上的一切）
+  由宿主加载器解析；插件 jar 内打包的同名类被遮蔽，绝不会从 jar 加载。插件代码因此永远实现
+  宿主的 `Plugin` 类型——绝无副本——这正是 T26 的实例身份与 GC 回收保证得以成立的前提。
+- **无插件间仲裁**：两个插件 jar 携带同一全限定类时，各自从各自的加载器加载副本
+  （每 jar 加载器互为兄弟而非链条），跨插件同名类是不同且不可互换的类型。
+- **无依赖版本仲裁**：插件的依赖必须来自宿主 classpath；插件不能自带宿主类的另一版本。
+- **无模块封装**：对插件的反射访问不受限制（unnamed module），与 ModuleLayer 的强封装不同。
+
+阶段 1 按设计不支持（见阶段 2 评估 docs/design/hmr-isolation-evaluation.md）：经中间加载器
+解决跨插件类冲突、同一依赖的每插件版本、强封装。这些恰是 ModuleLayer 提供的能力，升级路径
+已在决策 D27 中预留。
+
+## 6. 参考
 
 - 论文：A Programming Paradigm for Spatiotemporal Composability，§5.2.2，
   https://github.com/cordiverse/paper

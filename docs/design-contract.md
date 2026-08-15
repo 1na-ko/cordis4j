@@ -1,8 +1,8 @@
 # Cordis4j Design Contract
 
-> Status: **v2.5, frozen** (for v0.2.1). Any semantic change must append a new decision-log entry
-> (Section 2) and bump this version. v2.5 appends D25 (baseUrl derivation) and D26 (loader
-> composition DSL) on top of v2.4 (D24).
+> Status: **v2.6, frozen** (for v0.2.1). Any semantic change must append a new decision-log entry
+> (Section 2) and bump this version. v2.6 appends D27 (HMR class isolation model) on top of
+> v2.5 (D25/D26).
 > Semantic baseline: the Cordis paper, *A Programming Paradigm for Spatiotemporal Composability*,
 > Sections 3-5 (section numbers below refer to that paper); reference implementations:
 > [cordiverse/cordis](https://github.com/cordiverse/cordis) and `@deepseek-ai/cordis`@4.0.1 (MIT).
@@ -79,6 +79,7 @@ contract.
 | D24 | Registry view | Context.services() snapshots the bindings this context provides (ancestors excluded), keyed by the effective store key with the realm override applied; the snapshot is immutable; enumeration walks the snapshot | The typed form of upstream's registry values/entries; a resolved whole-tree view stays out of scope until the loader composition DSL (parity P4-4) needs it |
 | D25 | Base directory | Context.baseUrl() returns the nearest base directory bound by this context or an ancestor (empty when none); Context.withBaseUrl(path) derives a child carrying it, like fork(); relative configuration paths (include references) resolve against it | Upstream Context.baseUrl in the immutable-derivation idiom (fork/isolate) |
 | D26 | Loader composition | Loader.reconcileTree flattens a ComponentSpec tree into per-entry load contexts and reconciles through the D18 engine: Group prefixes its children's ids with groupId+':'; Isolate loads its children into a derived isolate(type, realm) context (a per-node realm, disposed once its entries all unload); Include inlines another configuration source resolved against the base directory through a caller-supplied resolver (no file format imposed); duplicate flattened ids fail fast before any change; failures roll back like D18 | Upstream's entry/group/isolate/tree configuration and the include directive in typed form; the flat reconcile(LoaderConfig) is the single-context special case of the same engine |
+| D27 | HMR class isolation | cordis4j-hmr loads each plugin jar into a URLClassLoader parented on the cordis4j-core loader: host classes win over same-named plugin classes (plugins always see the host Plugin type), plugins cannot ship their own versions of host dependencies, cross-plugin same-name classes are distinct copies, and there is no module encapsulation; retraction stays close-and-collect with the GC guarantee of T26/T34 | The stage-1 model of docs/design/hmr-evaluation.md section 5; the child-first (with a cordis4j-core exclusion) and ModuleLayer upgrades are evaluated and reserved in docs/design/hmr-isolation-evaluation.md - code follows only when a real requirement appears |
 
 ---
 
@@ -387,7 +388,8 @@ by the module).
 - Ecosystem (module-level, outside this core contract; no decision-log entry): cordis4j-langchain4j
   exposes `CordisTool` services of a session context as LangChain4j tools that follow the
   reactive-coeffect lifecycle (T25); cordis4j-spring provides a Context bean and @CordisService
-  beans that follow bean lifecycles (T27).
+  beans that follow bean lifecycles, withdrawing bindings in the stop phase before any bean is
+  destroyed so the drain keeps boundary 13/14 (T27, T35).
 - HMR (roadmap c, module-level, outside this core contract; no decision-log entry): the evaluation
   (docs/design/hmr-evaluation.md) and the stage-1 engine (cordis4j-hmr) - a zero-dependency
   custom ClassLoader engine with jar-granular module classification, loader close-and-collect
