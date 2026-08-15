@@ -135,9 +135,9 @@ mvn verify   # enforcer + spotless + tests (T1-T35, 133 tests) + jacoco (>= 85%)
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow (GitHub Flow), the quality
-gates, and the documentation policy (English is canonical; Chinese translations live in
-`README.zh-CN.md` and `docs/zh/`).
+A personal project, maintained in spare time - issues and PRs are welcome (see
+[CONTRIBUTING.md](CONTRIBUTING.md) for building, testing, and the PR workflow). English docs
+are canonical; Chinese translations follow along in `README.zh-CN.md` and `docs/zh/`.
 
 ## Credits
 

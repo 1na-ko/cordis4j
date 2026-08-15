@@ -1,52 +1,35 @@
 # Contributing to Cordis4j
 
-Thanks for your interest in contributing. This document is the process contract of the project;
-the semantic contract lives in [docs/design-contract.md](docs/design-contract.md).
+This is a personal project maintained in spare time. Issues and PRs are welcome, but replies
+may be slow. The semantic ground truth is [docs/design-contract.md](docs/design-contract.md) -
+when in doubt about a design decision, please open an issue and ask before large changes.
 
-## Development workflow (GitHub Flow)
+Please keep discussions friendly and about the code; that's the whole etiquette policy here.
 
-- `main` is always releasable: green CI, tagged releases only.
-- Every change lands through a **feature branch + pull request**:
-  1. branch off `main` with a conventional-type prefix (`feat/`, `fix/`, `docs/`, `test/`,
-     `chore/`, `ci/`);
-  2. push the branch and open a PR; CI runs on the PR;
-  3. merge with **squash** only after CI passes; delete the branch.
-- `main` is protected by a ruleset: direct pushes are rejected; a PR with a green CI run is
-  required to merge.
-- Releasing: bump the `<revision>` property in `pom.xml` (the single source of truth for all
-  module versions), update `CHANGELOG.md`, commit on `main`, and tag `vX.Y.Z`.
+## Building and testing
 
-## Commit conventions
+- JDK 21+, Maven 3.9+.
+- `mvn verify` runs what CI runs: format check, tests, line coverage (>= 85%), javadoc
+  (doclint), and dependency analysis.
+- `mvn spotless:apply` fixes Java formatting before committing.
 
-- [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`,
-  `test:`, `chore:`, `ci:`.
-- Messages in English.
+## Pull requests
 
-## Quality gates
+`main` is protected (a PR with a green CI run is required to merge), so:
 
-`mvn verify` must pass before a PR is opened or merged. It runs: enforcer (JDK 21+), spotless
-(google-java-format + license headers), the unit/semantic tests, JaCoCo (line coverage >= 85%),
-javadoc (doclint=all), and dependency analysis (zero undeclared/unused dependencies).
+1. branch off `main` and make the change;
+2. open a PR; CI must pass;
+3. commit messages in the conventional style (`feat:`, `fix:`, `docs:`, ...), in English.
 
-Run `mvn spotless:apply` before committing Java changes.
+Small fixes are fine as they are. For anything semantic (the design contract, the public API),
+please include a test that pins the behavior.
 
-## Documentation policy
+## Documentation
 
-- **Canonical language: English.** Code, Javadoc, commit messages, `CHANGELOG.md`, `README.md`,
-  and the `docs/` tree are English.
-- **Chinese translations** live in `README.zh-CN.md` and `docs/zh/`. Every translation must
-  state the canonical document it translates and its last sync date; when in doubt, the English
-  version wins.
-- When a canonical English document changes, update its Chinese translation in the same PR - or
-  explicitly mark the translation as outdated. Never leave a stale translation unmarked.
-- `docs/` is the source of current truth for users; internal working documents and
-  assessments stay out of the public repository.
-- Third-party documents are cited by link, never vendored into the repository.
-
-## Code of Conduct
-
-This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md).
+English documents are canonical; `README.zh-CN.md` and `docs/zh/` are Chinese translations
+that follow along. Updating a translation in the same PR as its English original is
+appreciated; marking it as outdated is acceptable too.
 
 ## License
 
-MIT. See [LICENSE](LICENSE). By contributing you agree to license your work under MIT.
+MIT - see [LICENSE](LICENSE).
