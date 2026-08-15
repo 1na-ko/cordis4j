@@ -18,6 +18,7 @@ import io.cordis4j.core.ServiceKey;
 import io.cordis4j.core.TriFunction;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -165,6 +166,13 @@ public final class ContextImpl implements Context {
     checkAlive();
     Objects.requireNonNull(key, "key");
     return Optional.ofNullable(registry.findIntercept(key));
+  }
+
+  @Override
+  public <T> List<Object> intercepts(ServiceKey<T> key) {
+    checkAlive();
+    Objects.requireNonNull(key, "key");
+    return List.copyOf(registry.findIntercepts(key));
   }
 
   @Override

@@ -27,7 +27,7 @@
 | Logger: name hierarchy, levels, diff, exporter extension | `logger(name)` + java.util.logging adapter | Partially aligned: levels and names yes; the exporter extension point is intentionally absent (JVM logging ecosystems - SLF4J/JUL - are the exporters) |
 | Registry: enumerate (`get/has/delete/keys/values/entries/forEach`) | no enumeration API | Missing (P4-2: a registry view over typed keys) |
 | `Inject` decorator + `ctx.inject` reactive declaration | `ctx.inject` + `@Inject` fields + compile-time processor (D21, T24, T28) | Aligned and beyond (compile-time generation) |
-| `plugin(plugin, config)` + `Service.resolveConfig` (intercept-chain config merging) | `plugin(Plugin)` + intercept metadata storage (D17); config consumption unhardened | Partially aligned: the config-resolution semantics are missing (P4-3) |
+| `plugin(plugin, config)` + `Service.resolveConfig` (intercept-chain config merging) | `plugin(Plugin)` + intercept storage (D17) + `intercepts(key)` chain collection (D23, T31) - callers merge with any policy | Aligned in the Java form: chain collection is the consumption semantics; per-service typed config objects stay the JVM idiom (no weak `config` field to port) |
 | `Service` base: name/config/invoke/check/tracker | `Service` marker with start/stop hooks (D9) | Intentional difference: invoke (callable services) and weak config typing are TypeScript idioms; Java services use constructors and typed config objects |
 | Fiber runtime, rc6 shadow/caller observation | fiber machine (D7/D19/D20), no shadow observation | Intentional difference: shadow/caller exist for Logger observation in upstream; the JVM logger is simplified - record and revisit if observation is wanted |
 | `reflect` service (string-named provision behind a Proxy) | absent | Intentional difference: superseded by typed keys |
@@ -76,8 +76,8 @@ equivalent of exporters. Intentional difference; nothing to port.
 
 - ~~P4-1 (event modes, T29)~~ landed: `once`, prepend, `bail`, `waterfall` (contract v2.2, D22).
 - ~~P4-2 (timer module, T30)~~ landed: `cordis4j-timer`.
-- **P4-3 (config resolution)**: the consumption semantics of intercept metadata - a
-  chain-resolved config for services, the Java form of `Service.resolveConfig`.
+- ~~P4-3 (config resolution)~~ landed: `Context.intercepts(key)` collects the intercept chain
+  root-first (contract v2.3, D23, T31); merging policy stays with the caller.
 - **P4-4 (loader DSL + registry views)**: group/isolate/tree composition, `include` directives,
   and a typed registry enumeration - the compositional half of `@cordisjs/loader` and
   `@cordisjs/group`.
