@@ -4,6 +4,7 @@
  */
 package io.cordis4j.core;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
@@ -148,6 +149,20 @@ public interface Context extends Disposable {
    * @throws NullPointerException if {@code key} is null
    */
   <T> Optional<Object> interceptOf(ServiceKey<T> key);
+
+  /**
+   * Collects the interception metadata bound along the tree for a key, from the root to this
+   * context (decision D23): the consumption form of upstream's resolveConfig. Callers merge the
+   * list with any policy - the {@link #interceptOf} result is exactly the nearer-wins monoid of
+   * {@link InterceptMetadata} over this list.
+   *
+   * @param <T> the service type
+   * @param key the service key
+   * @return the bound metadata, root first and nearest last; empty when none is bound
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code key} is null
+   */
+  <T> List<Object> intercepts(ServiceKey<T> key);
 
   // ── Effects (paper, Section 5.1.1, Algorithm 1) ───────────────────────────
 

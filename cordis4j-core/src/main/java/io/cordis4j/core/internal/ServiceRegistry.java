@@ -140,7 +140,12 @@ final class ServiceRegistry {
    * merge from the root toward the owner when every one of them is an {@link InterceptMetadata};
    * otherwise the nearest binding wins.
    */
-  Object findIntercept(ServiceKey<?> key) {
+  /**
+   * Collects the interception metadata bound along the tree for a key, from the root to the owner
+   * context: the consumption form of upstream's resolveConfig (decision D23) - callers merge the
+   * list with any policy, for example the nearer-wins monoid of {@link #findIntercept}.
+   */
+  List<Object> findIntercepts(ServiceKey<?> key) {
     List<Object> chain = new ArrayList<>();
     for (ContextImpl context = owner; context != null; context = context.parent) {
       Object metadata;
@@ -151,10 +156,15 @@ final class ServiceRegistry {
         chain.add(metadata);
       }
     }
+    Collections.reverse(chain); // root first: nearer bindings last
+    return chain;
+  }
+
+  Object findIntercept(ServiceKey<?> key) {
+    List<Object> chain = findIntercepts(key);
     if (chain.isEmpty()) {
       return null;
     }
-    Collections.reverse(chain); // root first: nearer bindings merge over outer ones
     Object merged = chain.get(0);
     for (int i = 1; i < chain.size(); i++) {
       Object nearer = chain.get(i);
