@@ -4,6 +4,7 @@
  */
 package io.cordis4j.core;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -358,6 +359,26 @@ public interface Context extends Disposable {
    * @return the root context, never null
    */
   Context root();
+
+  /**
+   * Returns the base directory against which relative configuration paths (for example include
+   * references) resolve (decision D25, upstream's Context.baseUrl): the nearest binding of this
+   * context or an ancestor.
+   *
+   * @return the base directory, or empty when none was set
+   */
+  Optional<Path> baseUrl();
+
+  /**
+   * Derives a child context carrying a base directory: it inherits everything from this context
+   * (like {@link #fork()}) and additionally binds {@code baseUrl} for itself and its descendants.
+   *
+   * @param baseUrl the base directory to bind
+   * @return the derived child context, which is itself the disposable that discards it
+   * @throws IllegalStateException if this context is disposed
+   * @throws NullPointerException if {@code baseUrl} is null
+   */
+  Context withBaseUrl(Path baseUrl);
 
   // ── Composition entry points (paper Algorithm 4) ─────────────────────────
 

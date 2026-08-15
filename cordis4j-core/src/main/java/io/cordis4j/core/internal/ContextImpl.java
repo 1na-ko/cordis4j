@@ -16,6 +16,7 @@ import io.cordis4j.core.NoSuchServiceException;
 import io.cordis4j.core.Plugin;
 import io.cordis4j.core.ServiceKey;
 import io.cordis4j.core.TriFunction;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -57,6 +58,7 @@ public final class ContextImpl implements Context {
 
   private volatile boolean disposed;
   private volatile ExecutorService executor;
+  private Path baseUrl;
 
   /** Creates a context; {@code parent} is null only for the root. */
   public ContextImpl(ContextImpl parent) {
@@ -272,6 +274,28 @@ public final class ContextImpl implements Context {
   @Override
   public Context root() {
     return root;
+  }
+
+  @Override
+  public Optional<Path> baseUrl() {
+    checkAlive();
+    for (ContextImpl context = this; context != null; context = context.parent) {
+      Path bound = context.baseUrl;
+      if (bound != null) {
+        return Optional.of(bound);
+      }
+    }
+    return Optional.empty();
+  }
+
+  @Override
+  public Context withBaseUrl(Path baseUrl) {
+    checkAlive();
+    Objects.requireNonNull(baseUrl, "baseUrl");
+    ContextImpl child = new ContextImpl(this);
+    child.baseUrl = baseUrl;
+    track(Disposables.of(child::dispose));
+    return child;
   }
 
   @Override
