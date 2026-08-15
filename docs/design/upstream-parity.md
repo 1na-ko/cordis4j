@@ -22,7 +22,7 @@
 |---|---|---|
 | Built-in services behind a Proxy (`ctx.logger`, `ctx.events`, `ctx.reflect`, `ctx.registry`, string-named) | `ServiceKey<T>(type, qualifier)` + typed `get`/`find` (D1, D5) | Intentional difference: typed keys replace string names - the JVM advantage |
 | `Context.root` / prototype-chain `extend(meta)` | `root()`, `fork()`, `isolate(type, realm)` | Aligned (Java form) |
-| `Context.baseUrl` (config file directory) | absent | Missing; lands with the loader DSL (P4-2) |
+| `Context.baseUrl` (config file directory) | `baseUrl()` + `withBaseUrl(path)` derivation (D25, T33) | Aligned in the immutable-derivation idiom |
 | Events: `on` (prepend/priority options), `once`, dispatch modes `emit` / `bail` / `waterfall` / `parallel` / `serial` | synchronous `on` (+ prepend), `once`, `emit`, `bail`, `waterfall` (D22, T29) | Aligned for the synchronous subset; parallel/serial are async dispatch - not applicable to the synchronous core, revisit with a reactive/async profile |
 | Logger: name hierarchy, levels, diff, exporter extension | `logger(name)` + java.util.logging adapter | Partially aligned: levels and names yes; the exporter extension point is intentionally absent (JVM logging ecosystems - SLF4J/JUL - are the exporters) |
 | Registry: enumerate (`get/has/delete/keys/values/entries/forEach`) | `services()` snapshot of the context's own bindings, typed keys (D24, T32) | Aligned in the typed form; a resolved whole-tree view stays out of scope until the loader composition DSL needs it |
@@ -36,8 +36,8 @@
 
 | Upstream | Cordis4j | Status |
 |---|---|---|
-| `Loader` with `EntryTree` config: `entry` / `group` / `isolate` / `tree` composition, transactional reconcile | `Loader`/`LoaderConfig`/`ComponentEntry`: id-keyed diff, transactional reconcile, reverse-order disposal (D18, T21) | Partially aligned: the reconcile engine yes; the compositional config DSL (group/isolate/tree/include) is missing (P4-2) |
-| YAML `include` directives (`@cordisjs/include`) | absent | Missing (P4-2) |
+| `Loader` with `EntryTree` config: `entry` / `group` / `isolate` / `tree` composition, transactional reconcile | `Loader` reconcile engine (D18, T21) + `reconcileTree` over `ComponentSpec` (Group prefixes, Isolate realms, Include inlining) (D26, T33) | Aligned in the typed form; per-node isolation realms instead of upstream's realm table |
+| YAML `include` directives (`@cordisjs/include`) | `ComponentSpec.Include` inlines another source against the base directory through a caller-supplied resolver - no file format imposed | Aligned in the typed form (no YAML dependency) |
 
 ### 2.3 @cordisjs/hmr
 
@@ -78,5 +78,5 @@ equivalent of exporters. Intentional difference; nothing to port.
 - ~~P4-2 (timer module, T30)~~ landed: `cordis4j-timer`.
 - ~~P4-3 (config resolution)~~ landed: `Context.intercepts(key)` collects the intercept chain
   root-first (contract v2.3, D23, T31); merging policy stays with the caller.
-- **P4-4 (loader DSL)**: group/isolate/tree composition and `include` directives - the
-  compositional half of `@cordisjs/loader`; the registry view landed separately (D24, T32).
+- ~~P4-4 (loader DSL)~~ landed: group/isolate/tree composition, include inlining, and baseUrl
+  derivation (D25/D26, T33); the registry view landed separately (D24, T32).

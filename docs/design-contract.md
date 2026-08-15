@@ -1,7 +1,8 @@
 # Cordis4j Design Contract
 
-> Status: **v2.4, frozen** (for v0.2.1). Any semantic change must append a new decision-log entry
-> (Section 2) and bump this version. v2.4 appends D24 (registry view) on top of v2.3 (D23).
+> Status: **v2.5, frozen** (for v0.2.1). Any semantic change must append a new decision-log entry
+> (Section 2) and bump this version. v2.5 appends D25 (baseUrl derivation) and D26 (loader
+> composition DSL) on top of v2.4 (D24).
 > Semantic baseline: the Cordis paper, *A Programming Paradigm for Spatiotemporal Composability*,
 > Sections 3-5 (section numbers below refer to that paper); reference implementations:
 > [cordiverse/cordis](https://github.com/cordiverse/cordis) and `@deepseek-ai/cordis`@4.0.1 (MIT).
@@ -76,6 +77,8 @@ contract.
 | D22 | Event modes | on(type, listener, prepend) inserts before the context's existing listeners; once fires exactly once then unregisters (filter honored, manual removal still possible); a second, function-shaped listener list (fold) powers bail - the first non-null result short-circuits the dispatch, ancestors included - and waterfall - non-null results fold into the next input, null keeps the accumulator; emit stays the consumer-list path; bubbling stays child-to-root | Upstream DispatchMode bail/waterfall plus the prepend option and once, in the synchronous core's typed form (the upstream parity baseline, docs/design/upstream-parity.md); parallel/serial stay out of scope as async dispatch |
 | D23 | Intercept consumption | Context.intercepts(key) collects the interception metadata bound along the tree root-first, nearest-last (the raw chain, no merging); interceptOf stays the nearer-wins monoid over that chain; callers merge the list with any policy | The Java form of upstream's Service.resolveConfig - chain collection is the consumption semantics, merging policy stays in the caller (the upstream parity baseline) |
 | D24 | Registry view | Context.services() snapshots the bindings this context provides (ancestors excluded), keyed by the effective store key with the realm override applied; the snapshot is immutable; enumeration walks the snapshot | The typed form of upstream's registry values/entries; a resolved whole-tree view stays out of scope until the loader composition DSL (parity P4-4) needs it |
+| D25 | Base directory | Context.baseUrl() returns the nearest base directory bound by this context or an ancestor (empty when none); Context.withBaseUrl(path) derives a child carrying it, like fork(); relative configuration paths (include references) resolve against it | Upstream Context.baseUrl in the immutable-derivation idiom (fork/isolate) |
+| D26 | Loader composition | Loader.reconcileTree flattens a ComponentSpec tree into per-entry load contexts and reconciles through the D18 engine: Group prefixes its children's ids with groupId+':'; Isolate loads its children into a derived isolate(type, realm) context (a per-node realm, disposed once its entries all unload); Include inlines another configuration source resolved against the base directory through a caller-supplied resolver (no file format imposed); duplicate flattened ids fail fast before any change; failures roll back like D18 | Upstream's entry/group/isolate/tree configuration and the include directive in typed form; the flat reconcile(LoaderConfig) is the single-context special case of the same engine |
 
 ---
 
@@ -140,6 +143,10 @@ by the module).
             // immutable snapshot of this context's provided bindings (ancestors excluded),
             // keyed by the effective store key (D24)
 
+        -- Space (Section 3.3.1) --
+        Optional<Path> baseUrl()          // nearest base directory along the tree, or empty (D25)
+        Context withBaseUrl(Path)         // derives a child carrying the base directory
+
         -- Effects (Section 5.1.1, Algorithm 1) --
         EffectScope effect()
             // opens an effect group. Idiom: try (var fx = ctx.effect()) { fx.track(...); ... }
@@ -200,6 +207,19 @@ by the module).
     record ComponentEntry(String id, Plugin component)   // instance identity is the version
     record LoaderConfig(List<ComponentEntry> entries)    // ids unique
     final class Loader implements Disposable             // id-keyed diff, transactional reconcile
+
+    // ── Loader composition (D26, upstream's entry/group/isolate/tree in typed form) ──
+    sealed interface ComponentSpec
+        record Entry(String id, Plugin component)        // a plain component
+        record Group(String id, List<ComponentSpec>)     // prefixes children with id+':'
+        record Isolate(Class<?> type, String realm, List<ComponentSpec>)
+            // children load into a derived isolate context; a per-node realm, disposed when
+            // its entries all unload
+        record Include(Path file, Function<Path, List<ComponentSpec>> resolver)
+            // inlines another source resolved against the base directory; the resolver picks
+            // the file format
+    Loader.reconcileTree(List<ComponentSpec>) / reconcileTree(Path baseUrl, List<ComponentSpec>)
+        // flatten, then the D18 engine with per-entry load contexts
 
     public class SupplyConflictException extends CordisException   // D12
     public class CyclicDependencyException extends CordisException // cycle guard (Progress)
@@ -318,6 +338,13 @@ by the module).
 25. Registry view: services() snapshots this context's provided bindings only (ancestors
     excluded), keyed by the effective store key with the realm override applied; the snapshot
     is immutable; overwrites and removals are reflected by later snapshots (T32).
+26. Base directory: baseUrl() walks the tree for the nearest binding; withBaseUrl(path) derives
+    a child whose descendants inherit the binding; disposed contexts reject both (T33).
+27. Loader composition: groups prefix children ids with ':' separators; isolation realms load
+    their children into derived contexts so sibling realms coexist without supply conflicts,
+    and a realm is disposed once its entries all unload; includes inline their source resolved
+    against the base directory; duplicate flattened ids fail fast before any change; a failing
+    component rolls the tree reconcile back to the previous set (T33).
 23. Annotation injection: an instance's @Inject fields form one declaration (D21) - populated
     when every field key resolves, cleared when a relied supply withdraws or the declaration
     retires, refilled on re-satisfaction; fields hold activation-time snapshots, so an ambient
@@ -354,7 +381,9 @@ by the module).
   once, bail, waterfall (D22, T29) - closing the synchronous subset of the upstream dispatch modes
   recorded in the parity baseline docs/design/upstream-parity.md; intercept-chain consumption -
   intercepts(key) as the Java form of resolveConfig (D23, T31); the registry view -
-  services() as the typed form of upstream's registry enumeration (D24, T32).
+  services() as the typed form of upstream's registry enumeration (D24, T32); the loader
+  composition DSL - group/isolate/tree/include over the D18 engine, with baseUrl derivation
+  (D25, D26, T33).
 - Ecosystem (module-level, outside this core contract; no decision-log entry): cordis4j-langchain4j
   exposes `CordisTool` services of a session context as LangChain4j tools that follow the
   reactive-coeffect lifecycle (T25); cordis4j-spring provides a Context bean and @CordisService

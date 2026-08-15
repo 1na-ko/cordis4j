@@ -20,7 +20,7 @@
 |---|---|---|
 | Proxy 后的内建服务（`ctx.logger`、`ctx.events`、`ctx.reflect`、`ctx.registry`，字符串命名） | `ServiceKey<T>(type, qualifier)` + 类型化 `get`/`find`（D1、D5） | 有意差异：类型键取代字符串名——JVM 优势 |
 | `Context.root` / 原型链 `extend(meta)` | `root()`、`fork()`、`isolate(type, realm)` | 已对齐（Java 形态） |
-| `Context.baseUrl`（配置文件目录） | 无 | 缺失；随 loader DSL 补（P4-2） |
+| `Context.baseUrl`（配置文件目录） | `baseUrl()` + `withBaseUrl(path)` 派生（D25、T33） | 不可变派生惯用形态已对齐 |
 | 事件：`on`（prepend/priority 选项）、`once`、分发模式 `emit` / `bail` / `waterfall` / `parallel` / `serial` | 同步 `on`（含 prepend）、`once`、`emit`、`bail`、`waterfall`（D22、T29） | 同步子集已对齐；parallel/serial 是异步分发——不适用于同步核心，待异步形态再议 |
 | Logger：name 层级、级别、diff、exporter 扩展 | `logger(name)` + java.util.logging 适配 | 部分对齐：级别与 name 有；exporter 扩展点有意缺席（JVM 日志生态——SLF4J/JUL——即 exporter） |
 | 注册表枚举（`get/has/delete/keys/values/entries/forEach`） | `services()` 快照本 context 绑定，类型键（D24、T32） | 类型化形态已对齐；解析后的整树视图留待 loader 组合 DSL 需要时再做 |
@@ -34,8 +34,8 @@
 
 | 上游 | Cordis4j | 状态 |
 |---|---|---|
-| `Loader` 与 `EntryTree` 配置：`entry` / `group` / `isolate` / `tree` 组合、事务性调和 | `Loader`/`LoaderConfig`/`ComponentEntry`：id 键控 diff、事务性调和、逆序卸载（D18、T21） | 部分对齐：调和引擎有；组合配置 DSL（group/isolate/tree/include）缺失（P4-2） |
-| YAML `include` 指令（`@cordisjs/include`） | 无 | 缺失（P4-2） |
+| `Loader` 与 `EntryTree` 配置：`entry` / `group` / `isolate` / `tree` 组合、事务性调和 | `Loader` 调和引擎（D18、T21）+ `ComponentSpec` 之上的 `reconcileTree`（Group 前缀、Isolate 域、Include 内联）（D26、T33） | 类型化形态已对齐；每节点隔离域取代上游的 realm 表 |
+| YAML `include` 指令（`@cordisjs/include`） | `ComponentSpec.Include` 经调用方提供的 resolver 相对基础目录内联另一配置源——不限定文件格式 | 类型化形态已对齐（无 YAML 依赖） |
 
 ### 2.3 @cordisjs/hmr
 
@@ -74,5 +74,5 @@
 - ~~P4-2（定时器模块，T30）~~ 已落地：`cordis4j-timer`。
 - ~~P4-3（配置解析）~~ 已落地：`Context.intercepts(key)` 根在前收集 intercept 链（契约 v2.3，
   D23、T31）；合并策略留在调用方。
-- **P4-4（loader DSL）**：group/isolate/tree 组合与 `include` 指令——`@cordisjs/loader` 的
-  组合半程；注册表视图已单独落地（D24、T32）。
+- ~~P4-4（loader DSL）~~ 已落地：group/isolate/tree 组合、include 内联与 baseUrl 派生
+  （D25/D26、T33）；注册表视图已单独落地（D24、T32）。

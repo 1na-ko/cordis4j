@@ -87,6 +87,7 @@ disappear, or are replaced.
 | Asynchrony on virtual threads + guard/divert (§4.3.2) | ✅ | `pluginAsync`, `spawn`, `currentFiber` |
 | Isolation realms + interception metadata monoid (§5.1.2) | ✅ | `isolate`, `InterceptMetadata` |
 | Declarative loader, id-keyed diff, transactional reload (§5.2.1, Alg. 10) | ✅ | `Loader` |
+| Loader composition DSL: group/isolate/tree/include (upstream parity) | ✅ | `ComponentSpec`, `reconcileTree` (D26) |
 | Bytecode-level hot module replacement (§5.2.2) | ✅ | `HotReloadingLoader` in `cordis4j-hmr` |
 | LangChain4j tool bridge (ecosystem) | ✅ | `CordisToolRegistry` in `cordis4j-langchain4j` |
 | Spring integration (ecosystem) | ✅ | `ContextFactoryBean` in `cordis4j-spring` |
@@ -117,14 +118,14 @@ mid-conversation); run it with `mvn -pl cordis4j-langchain4j exec:java`.
 ## Build & quality gates
 
 ```console
-mvn verify   # enforcer + spotless + tests (T1-T32, 123 tests) + jacoco (>= 85%) + javadoc + dependency analysis
+mvn verify   # enforcer + spotless + tests (T1-T33, 129 tests) + jacoco (>= 85%) + javadoc + dependency analysis
 ```
 
 ## Roadmap
 
-- **P4 (upstream parity)** — the remaining items of docs/design/upstream-parity.md: intercept-chain
-  config resolution (the Java form of `Service.resolveConfig`) and the loader composition DSL
-  (group/isolate/tree/include) with typed registry views.
+- **P4 (upstream parity)** — the parity baseline docs/design/upstream-parity.md is fully landed:
+  event modes (D22), the timer module, intercept-chain consumption (D23), registry views (D24),
+  and the loader composition DSL with baseUrl (D25/D26).
 - **P3** — the ModuleLayer HMR variant (stage 2 of `docs/design/hmr-evaluation.md`; stage 1, the
   zero-dependency ClassLoader engine, has landed as `cordis4j-hmr`) and the Quarkus integration
   (evaluated and deferred in `docs/design/quarkus-evaluation.md`). The other P3 items have landed:
