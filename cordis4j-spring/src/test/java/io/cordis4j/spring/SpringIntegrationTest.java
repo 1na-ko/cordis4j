@@ -11,8 +11,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.cordis4j.core.Context;
 import io.cordis4j.core.ServiceKey;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.FactoryBean;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -21,6 +27,10 @@ import org.springframework.context.annotation.Configuration;
  * T27: the Spring integration - @CordisService beans become cordis4j services while the container
  * runs (the spatial dimension over Spring DI) and the context bean disposes the whole session when
  * the container closes (the temporal dimension).
+ *
+ * <p>T58: a Context bean that fails to create keeps the container alive - the registrar logs one
+ * warning, caches the terminal absence, and leaves every annotated bean unprovided instead of
+ * aborting startup.
  */
 class SpringIntegrationTest {
 
@@ -127,5 +137,76 @@ class SpringIntegrationTest {
         IllegalStateException.class,
         () -> session.find(DefaultClock.class),
         "destroy 必须 dispose context");
+  }
+
+  /** A Context factory whose object cannot be created: a candidate that exists but fails. */
+  static class BrokenContextFactoryBean implements FactoryBean<Context> {
+
+    @Override
+    public Context getObject() {
+      throw new IllegalStateException("context construction failed");
+    }
+
+    @Override
+    public Class<?> getObjectType() {
+      return Context.class;
+    }
+  }
+
+  @Configuration
+  static class BrokenContextApp {
+
+    @Bean
+    static CordisServiceRegistrar cordisServiceRegistrar() {
+      return new CordisServiceRegistrar();
+    }
+
+    @Bean
+    static BrokenContextFactoryBean brokenContext() {
+      return new BrokenContextFactoryBean();
+    }
+
+    @Bean
+    static DefaultClock firstAnnotated() {
+      return new DefaultClock();
+    }
+
+    @Bean
+    static BackupClock secondAnnotated() {
+      return new BackupClock();
+    }
+  }
+
+  @Test
+  @DisplayName("T58 Context bean 创建失败：容器仍启动、服务不上线、warning 只发一次（终态缓存）")
+  void unresolvableContextKeepsTheContainerAlive() {
+    Logger registrarLog = Logger.getLogger(CordisServiceRegistrar.class.getName());
+    List<LogRecord> warnings = new CopyOnWriteArrayList<>();
+    Handler capture =
+        new Handler() {
+          @Override
+          public void publish(LogRecord record) {
+            warnings.add(record);
+          }
+
+          @Override
+          public void flush() {}
+
+          @Override
+          public void close() {}
+        };
+    registrarLog.addHandler(capture);
+    try {
+      try (AnnotationConfigApplicationContext container =
+          new AnnotationConfigApplicationContext(BrokenContextApp.class)) {
+        DefaultClock clock = container.getBean(DefaultClock.class);
+        assertEquals("default", clock.name, "容器必须照常启动，注解 bean 保持普通 bean");
+        assertEquals(1, warnings.size(), "首个注解 bean 判定后必须缓存终态，后续不再重查");
+        assertTrue(
+            warnings.get(0).getMessage().contains("dormant"), "不可达的 Context 必须以 warning 记录而非静默");
+      }
+    } finally {
+      registrarLog.removeHandler(capture);
+    }
   }
 }

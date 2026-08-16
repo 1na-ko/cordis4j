@@ -8,6 +8,9 @@ module io.cordis4j.spring {
   requires io.cordis4j.core;
   requires spring.beans;
   requires spring.context;
+  requires spring.core;
+  requires spring.aop;
+  requires java.logging;
 
   exports io.cordis4j.spring;
 }
