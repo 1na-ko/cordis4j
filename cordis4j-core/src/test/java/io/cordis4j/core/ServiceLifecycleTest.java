@@ -14,6 +14,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /** T8: the Service.start/stop hooks (extension D9): start on provide, stop in reverse order. */
+// T40: start/stop failures leave no orphan binding. T51: an overwrite whose start hook fails
+// restores the previous binding instead of evaporating the key.
 class ServiceLifecycleTest {
 
   @Test
@@ -85,23 +87,59 @@ class ServiceLifecycleTest {
   }
 
   @Test
-  @DisplayName("T40 覆盖旧服务时 stop(旧) 抛异常：异常传播且不留孤儿绑定")
-  void overwriteStopFailureLeavesNoOrphanBinding() {
+  @DisplayName("T40 覆盖旧服务时 stop(旧) 抛异常：异常传播且旧绑定恢复（M8/T51 语义）")
+  void overwriteStopFailureRestoresThePreviousBinding() {
     Context ctx = Contexts.create();
+    ServiceKey<Service> key = ServiceKey.of(Service.class);
     class BadStop implements Service {
       @Override
       public void stop() {
         throw new RuntimeException("stop-boom");
       }
     }
-    ctx.provide(ServiceKey.of(BadStop.class), new BadStop());
+    Service original = new BadStop();
+    ctx.provide(key, original);
     assertThrows(
-        RuntimeException.class,
-        () -> ctx.provide(ServiceKey.of(BadStop.class), new BadStop()),
-        "覆盖时旧服务 stop 抛出的异常必须传播");
-    assertTrue(ctx.find(ServiceKey.of(BadStop.class)).isEmpty(), "覆盖失败的键不得残留孤儿绑定");
-    ctx.provide(ServiceKey.of(BadStop.class), new BadStop());
-    assertTrue(ctx.find(ServiceKey.of(BadStop.class)).isPresent(), "失败后同键必须可重新注册");
+        RuntimeException.class, () -> ctx.provide(key, new BadStop()), "覆盖时旧服务 stop 抛出的异常必须传播");
+    assertTrue(ctx.find(key).isPresent(), "覆盖失败的键必须恢复旧绑定，不得蒸发");
+    assertEquals(original, ctx.get(key), "恢复的必须是原绑定实例（依赖者回到覆盖前稳定态）");
+  }
+
+  @Test
+  @DisplayName("T51 覆盖的 start 失败恢复旧绑定：依赖者不僵尸化，旧服务尽力回到 started")
+  void overwriteStartFailureRestoresThePreviousBinding() {
+    Context ctx = Contexts.create();
+    List<String> events = new ArrayList<>();
+    ServiceKey<Service> key = ServiceKey.of(Service.class);
+    HookedService oldService = new HookedService("old", events);
+    ctx.provide(key, oldService);
+    assertEquals(List.of("old:start"), events);
+
+    List<String> dependentTrace = new ArrayList<>();
+    Disposable dependent =
+        ctx.inject(
+            Service.class,
+            (c, service) -> {
+              dependentTrace.add("activated");
+              return Disposables.of(() -> dependentTrace.add("drained"));
+            });
+    assertEquals(List.of("activated"), dependentTrace, "测试前提：依赖者已激活");
+
+    class FailingStart implements Service {
+      @Override
+      public void start() {
+        throw new RuntimeException("start-boom");
+      }
+    }
+    assertThrows(RuntimeException.class, () -> ctx.provide(key, new FailingStart()));
+
+    assertEquals(
+        List.of("old:start", "old:stop", "old:start"),
+        events,
+        "覆盖失败必须尽力恢复旧服务到 started（事件序列 old:start → old:stop → old:start）");
+    assertEquals(oldService, ctx.get(key), "覆盖失败后同键必须解析回旧绑定实例");
+    assertEquals(List.of("activated"), dependentTrace, "依赖者不得被 drain：恢复的旧绑定保持依赖者运行（无键蒸发）");
+    dependent.dispose();
   }
 
   private static final class HookedService implements Service {

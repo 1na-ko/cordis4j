@@ -90,8 +90,9 @@ public final class ContextImpl implements Context {
 
   /**
    * Declaration mediation (paper Algorithm 6): a declarative fiber only sees its own keys. The
-   * comparison speaks effective (realm-rewritten) keys, the same base the dependency index and the
-   * store use, so a declaration made in an isolated subtree keeps mediating its own realm's keys.
+   * comparison speaks effective (realm-rewritten) keys computed from {@code this} - the same
+   * context the subsequent lookup resolves through - so a declaration made in an isolated subtree
+   * mediates the keys it can actually reach from where it reads, not where it was declared.
    */
   private void checkAccess(ServiceKey<?> key) {
     Fiber current = Domains.fiber();
@@ -99,7 +100,7 @@ public final class ContextImpl implements Context {
       return;
     }
     ServiceKey<?> effective = key;
-    String realm = current.owner.registry.effectiveRealm(key.type());
+    String realm = this.registry.effectiveRealm(key.type());
     if (realm != null) {
       effective = ServiceKey.of(key.type(), realm);
     }

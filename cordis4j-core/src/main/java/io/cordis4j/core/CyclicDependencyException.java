@@ -5,9 +5,13 @@
 package io.cordis4j.core;
 
 /**
- * Raised when reactive activation would revisit a fiber that is already activating, meaning the
- * dependency relation has a cycle (paper, Section 4.4, Progress: the precedence relation must be
- * acyclic for progress).
+ * Raised when a synchronous activation re-enters a fiber that is already activating on the same
+ * thread - a self-cycle where a body provides the very key its own fiber depends on (paper, Section
+ * 4.4, Progress: the precedence relation must be acyclic for progress).
+ *
+ * <p>Mutually cyclic declarations do <em>not</em> raise this exception: like upstream, both fibers
+ * simply stay INACTIVE because their dependencies are never satisfied - there is no recursive
+ * activation to reject. The type stays part of the public API for the self-cycle path above.
  *
  * <p>The message describes the cycle as a chain of fiber components.
  */

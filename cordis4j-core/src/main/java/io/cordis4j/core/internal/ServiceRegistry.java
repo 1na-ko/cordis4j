@@ -104,8 +104,25 @@ final class ServiceRegistry {
       }
     } catch (Throwable failure) {
       // A start/stop hook failure must not leave an orphan binding: the removal disposable
-      // has not reached the caller yet, so nobody else could ever remove it.
-      removeIfBound(storeKey, token);
+      // has not reached the caller yet, so nobody else could ever remove it. When this
+      // provide overwrote a previous binding, that binding is restored intact (token and
+      // owner fiber included) - an evaporated key would leave every dependent zombified
+      // with no store entry to drain or resolve against (Theorem 63's spirit).
+      if (existing != null) {
+        synchronized (this) {
+          store.put(storeKey, existing);
+        }
+        if (existing.service() instanceof Service previousService) {
+          try {
+            previousService.start(); // best effort: back to the pre-overwrite started state
+          } catch (Throwable restart) {
+            failure.addSuppressed(restart);
+          }
+        }
+        root().fibers.notifyBound(storeKey); // dependents re-classify against the restoration
+      } else {
+        removeIfBound(storeKey, token);
+      }
       if (supplier != null) {
         root().fibers.unsupplied(supplier, storeKey);
       }
