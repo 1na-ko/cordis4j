@@ -1,11 +1,12 @@
 # Cordis4j Design Contract
 
-> Status: **v2.9, frozen** (for v0.4.1). Any semantic change must append a new decision-log entry
+> Status: **v2.10, frozen** (for v0.4.1+). Any semantic change must append a new decision-log entry
 > (Section 2) and bump this version. v2.6 carried D25/D26; v2.7 belonged to D27 (HMR class
 > isolation, shipped in 0.3.0) and corrected the header lag; v2.8 adds D28 (the cordis
 > configuration-format bridge in cordis4j-loader, shipped in 0.4.0) with boundary semantics 35;
 > v2.9 is the 0.4.1 semantic-clarification batch: boundary semantics 36-44 and the corrections to
-> D5's key-space note, boundaries 29/32/33, and the cycle wording.
+> D5's key-space note, boundaries 29/32/33, and the cycle wording. v2.10 (dig round 1) extends
+> boundary 36: the two-argument inject form resolves its injected value under the rewritten key.
 > Semantic baseline: the Cordis paper, *A Programming Paradigm for Spatiotemporal Composability*,
 > Sections 3-5 (section numbers below refer to that paper); reference implementations:
 > [cordiverse/cordis](https://github.com/cordiverse/cordis) and `@deepseek-ai/cordis`@4.0.1 (MIT).
@@ -397,7 +398,9 @@ by the module).
 36. Realm/qualifier key space (D5): a realm label and a qualifier of the same text are one store
     key - an isolated declaration rewrites to that key, an ambient binding carrying the same
     qualifier text satisfies it, withdrawing that binding drains the dependent, and re-providing
-    re-activates it (T46).
+    re-activates it (T46). The two-argument (and three-argument) inject forms resolve their
+    injected values under the same rewritten key the declaration was indexed on, so a satisfied
+    declaration always sees its binding inside the body (T61).
 37. Declaration mediation base (D13): the comparison speaks effective keys computed from the
     context the lookup resolves through, not the declaration's owner - a realm-declared fiber
     reading the default key through the root is rejected, and vice versa (T47).

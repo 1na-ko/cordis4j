@@ -457,7 +457,11 @@ public final class ContextImpl implements Context {
       ServiceKey<T> dependency, BiFunction<Context, T, Disposable> onSatisfied) {
     Objects.requireNonNull(dependency, "dependency");
     Objects.requireNonNull(onSatisfied, "onSatisfied");
-    return injectInternal(Set.of(dependency), ctx -> onSatisfied.apply(ctx, ctx.get(dependency)));
+    // The injected value resolves under the same effective key the declaration was rewritten to
+    // (register's base): a realm declaration satisfied by an ambient qualifier binding of the
+    // same text must see that binding inside the body, not a NoSuchServiceException.
+    ServiceKey<T> effective = effectiveDependencyKey(dependency);
+    return injectInternal(Set.of(dependency), ctx -> onSatisfied.apply(ctx, ctx.get(effective)));
   }
 
   @Override
@@ -476,8 +480,19 @@ public final class ContextImpl implements Context {
     Objects.requireNonNull(second, "second");
     Objects.requireNonNull(onSatisfied, "onSatisfied");
     Set<ServiceKey<?>> dependencies = Set.copyOf(new LinkedHashSet<>(Arrays.asList(first, second)));
+    ServiceKey<T1> effectiveFirst = effectiveDependencyKey(first);
+    ServiceKey<T2> effectiveSecond = effectiveDependencyKey(second);
     return injectInternal(
-        dependencies, ctx -> onSatisfied.apply(ctx, ctx.get(first), ctx.get(second)));
+        dependencies,
+        ctx -> onSatisfied.apply(ctx, ctx.get(effectiveFirst), ctx.get(effectiveSecond)));
+  }
+
+  /**
+   * The dependency key rewritten by this context's realm overrides - register's declaration base.
+   */
+  private <T> ServiceKey<T> effectiveDependencyKey(ServiceKey<T> key) {
+    String realm = this.registry.effectiveRealm(key.type());
+    return realm != null ? ServiceKey.of(key.type(), realm) : key;
   }
 
   /**

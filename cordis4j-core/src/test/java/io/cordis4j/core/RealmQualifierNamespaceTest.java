@@ -18,6 +18,10 @@ import org.junit.jupiter.api.Test;
  * binding carrying the same qualifier text, drains when that binding withdraws, and re-activates
  * when it appears again. The declaration-side lifecycle is what shares the key space; resolution
  * inside the body keeps speaking the realm's own rewritten lookup.
+ *
+ * <p>T61: the two-argument inject form resolves its injected value under the same rewritten key the
+ * declaration was indexed on - a realm declaration satisfied by an ambient qualifier binding sees
+ * that binding inside the body instead of failing activation with a NoSuchServiceException.
  */
 class RealmQualifierNamespaceTest {
 
@@ -63,5 +67,29 @@ class RealmQualifierNamespaceTest {
         List.of("activated", "drained", "activated", "drained"),
         trace,
         "声明退役必须卸载当前激活的 body（最后一次 drained），此后不得再有激活");
+  }
+
+  @Test
+  @DisplayName("T61 双参 inject 的注入值按重写后的键解析：满足即可见，不再激活即失败")
+  void twoArgumentInjectResolvesTheValueUnderTheRewrittenKey() {
+    Context root = Contexts.create();
+    Context realm = root.isolate(Clock.class, "r1");
+    List<String> trace = new ArrayList<>();
+
+    Disposable declaration =
+        realm.inject(
+            Clock.class,
+            (ctx, clock) -> {
+              trace.add("saw:" + clock.name);
+              return Disposables.none();
+            });
+
+    root.provide(ServiceKey.of(Clock.class, "r1"), new Clock("outer"));
+    assertEquals(
+        List.of("saw:outer"),
+        trace,
+        "被同文本 qualifier 绑定满足的双参声明必须在 body 内解析到该绑定（修复前 fiber 静默 failed）");
+
+    declaration.dispose();
   }
 }

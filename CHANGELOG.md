@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Core: the two-argument (and three-argument) `inject` forms resolve their injected values under
+  the realm-rewritten key - a realm declaration satisfied by an ambient qualifier binding of the
+  same text now sees that binding inside the body instead of failing activation with a
+  `NoSuchServiceException` (dig round 1, T61). Design contract v2.10 extends boundary 36.
+
 ## [0.4.1] - 2026-08-17
 
 ### Fixed

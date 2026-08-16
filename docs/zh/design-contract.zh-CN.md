@@ -2,10 +2,11 @@
 
 > 本文档是英文规范本 [../design-contract.md](../design-contract.md) 的中文译本（规范本语言：英文）。
 > 如有歧义，以英文版为准。最近同步：2026-08-17（v2.9，0.4.1 语义澄清批）。
-> 状态：**v2.9 冻结**（对应 v0.4.1）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
+> 状态：**v2.10 冻结**（对应 v0.4.1+）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
 > v2.6 承载 D25/D26；v2.7 归属 D27（HMR 类隔离，随 0.3.0 发布）并修正头部滞后；v2.8 追加
 > D28（cordis4j-loader 的 cordis 配置格式桥接，随 0.4.0 发布）与边界语义 35；v2.9 为 0.4.1
-> 语义澄清批——边界语义 36-44，及对 D5 键空间说明、边界 29/32/33 与环措辞的修正。
+> 语义澄清批——边界语义 36-44，及对 D5 键空间说明、边界 29/32/33 与环措辞的修正；
+> v2.10（挖掘第 1 轮）扩展边界 36——双参 inject 的注入值按重写后的键解析。
 > 语义基线：cordis 论文《A Programming Paradigm for Spatiotemporal Composability》§3–§5（下文引用章节号即论文章节号）；
 > 参考实现：cordiverse/cordis 与 @deepseek-ai/cordis@4.0.1（MIT）。
 > Cordis4j 是论文语义的 **Java 重想**（inspired-by，非逐行移植）；与上游 TS API 的一切差异在 §5 显式声明。
@@ -330,7 +331,8 @@
     开关沿链继承）退出装载但保留元数据，无 id 条目拒绝映射（T42-T45）。
 36. realm/qualifier 键空间（D5）：realm 名与同文本 qualifier 是同一个 store key——隔离声明
     重写为该键，带同文本 qualifier 的 ambient 绑定满足它，撤回该绑定 drain 依赖者，再提供
-    再激活（T46）。
+    再激活（T46）。双参（与三参）inject 形式的注入值按声明索引所用的同一重写键解析，
+    被满足的声明在 body 内必能看到其绑定（T61）。
 37. 声明中介基（D13）：比较所用有效键以取数解析经过的 context 计算，而非声明所在的
     owner——realm 声明的 fiber 经 root 取 default 键被拒，反向亦然（T47）。
 38. 竞态退役：在 notifyBound 选定与激活之间被退役的声明永不执行 body；与 context dispose
