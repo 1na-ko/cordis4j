@@ -6,6 +6,7 @@ package io.cordis4j.langchain4j;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -15,13 +16,19 @@ import io.cordis4j.core.Context;
 import io.cordis4j.core.Contexts;
 import io.cordis4j.core.Disposable;
 import io.cordis4j.core.Disposables;
+import io.cordis4j.core.DisposeException;
 import io.cordis4j.core.Inject;
 import io.cordis4j.core.Injects;
 import io.cordis4j.core.ServiceKey;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -280,5 +287,93 @@ class CordisToolRegistryTest {
         IllegalStateException.class, () -> registry.declare(ECHO_KEY), "dispose 后 declare 必须拒绝");
     assertEquals("v1:{}", session.get(ECHO_KEY).execute("{}"), "session 的绑定不受 registry dispose 影响");
     assertFalse(registry.tool("echo").isPresent());
+  }
+
+  @Test
+  @DisplayName("T59 declare 与 dispose 竞态：声明被就地兜底退役，key 不泄漏进 session")
+  void racedDeclareDisposeDoesNotLeakDeclarations() throws Exception {
+    Context session = Contexts.create();
+    int rounds = 200;
+    List<WeakReference<ServiceKey<CordisTool>>> keys = new ArrayList<>();
+    AtomicReference<Throwable> failure = new AtomicReference<>();
+    for (int i = 0; i < rounds; i++) {
+      CordisToolRegistry registry = CordisToolRegistry.create(session);
+      ServiceKey<CordisTool> key = ServiceKey.of(CordisTool.class, "k" + i);
+      keys.add(new WeakReference<>(key));
+      CountDownLatch declaring = new CountDownLatch(1);
+      Thread declarer =
+          Thread.ofVirtual()
+              .start(
+                  () -> {
+                    try {
+                      declaring.countDown();
+                      try {
+                        registry.declare(key);
+                      } catch (IllegalStateException alreadyClosed) {
+                        // lost the race cleanly: the registry closed before the declaration began
+                      }
+                    } catch (Throwable thrown) {
+                      failure.compareAndSet(null, thrown);
+                    }
+                  });
+      declaring.await(1, TimeUnit.SECONDS);
+      registry.dispose(); // races the declare's second synchronized block
+      declarer.join(TimeUnit.SECONDS.toMillis(2));
+      assertFalse(declarer.isAlive(), "declarer 线程必须在超时内完成");
+    }
+    assertNull(failure.get(), "压力循环不得产生异常");
+
+    for (WeakReference<ServiceKey<CordisTool>> ref : keys) {
+      assertTrue(settle(ref), "竞态窗口里的声明必须被就地兜底退役，fiber 与 key 不得驻留 session");
+    }
+  }
+
+  static class FailingStopTool implements CordisTool, io.cordis4j.core.Service {
+    @Override
+    public ToolSpecification toolSpecification() {
+      return ToolSpecification.builder().name("failing").description("failing").build();
+    }
+
+    @Override
+    public String execute(String arguments) {
+      return "unused";
+    }
+
+    @Override
+    public void stop() {
+      throw new IllegalStateException("teardown failed");
+    }
+  }
+
+  @Test
+  @DisplayName("T59 retireAll 异常隔离：一条清理失败不中断其余退役，失败聚合抛出")
+  void retireAllAggregatesFailuresAndStillRetiresTheRest() {
+    Context session = Contexts.create();
+    CordisToolRegistry registry = CordisToolRegistry.create(session);
+    registry.declare(ECHO_KEY);
+    // The first declaration's fiber tracks a failing-stop binding through its activation
+    // listener (listeners run inside the activating fiber's domain), so retiring it throws.
+    ServiceKey<CordisTool> failingKey = ServiceKey.of(CordisTool.class, "failing");
+    AtomicBoolean trapped = new AtomicBoolean();
+    registry.onChange(
+        () -> {
+          if (trapped.compareAndSet(false, true)) {
+            session.provide(failingKey, new FailingStopTool()); // tracked by the fiber domain
+          }
+        });
+    registry.declare(failingKey);
+    session.provide(ECHO_KEY, new EchoTool("echo", "v1")); // activates the first declaration
+    assertEquals(2, registry.tools().size(), "测试前提：两个工具都激活");
+
+    assertThrows(DisposeException.class, registry::dispose, "聚合的清理失败必须抛出");
+    assertTrue(registry.tools().isEmpty(), "先失败的一条不得中断其余声明的退役");
+  }
+
+  private static boolean settle(WeakReference<?> ref) throws InterruptedException {
+    for (int i = 0; i < 150 && ref.get() != null; i++) {
+      System.gc();
+      Thread.sleep(20);
+    }
+    return ref.get() == null;
   }
 }

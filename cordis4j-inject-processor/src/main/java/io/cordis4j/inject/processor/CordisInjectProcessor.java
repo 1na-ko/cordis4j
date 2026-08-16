@@ -17,7 +17,6 @@ import javax.annotation.processing.Filer;
 import javax.annotation.processing.Messager;
 import javax.annotation.processing.RoundEnvironment;
 import javax.annotation.processing.SupportedAnnotationTypes;
-import javax.annotation.processing.SupportedSourceVersion;
 import javax.lang.model.SourceVersion;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
@@ -25,6 +24,8 @@ import javax.lang.model.element.Modifier;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
+import javax.lang.model.type.DeclaredType;
+import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Types;
 import javax.tools.Diagnostic;
 
@@ -34,17 +35,29 @@ import javax.tools.Diagnostic;
  * injector that wires them into one reactive declaration through {@link
  * io.cordis4j.core.Injects#injectFields(io.cordis4j.core.Context, List)}.
  *
- * <p>Constraints (all reported as compile errors): the annotated class must be a public top-level
- * class, and each field must be non-static, non-final, non-primitive, and non-private - the
- * generated accessors assign the fields directly, so no reflection and no {@code opens} are needed
+ * <p>The injector covers the class's whole superclass hierarchy, mirroring the runtime form's
+ * full-hierarchy scan (decision D21): {@code @Inject} fields declared on any superclass are wired
+ * too. Constraints (all reported as compile errors, located on the offending field): the annotated
+ * class must be a public top-level class, and each field - inherited ones included - must be
+ * non-static, non-final, non-primitive, of an accessible reference type, and reachable from the
+ * generated accessor (which lives in the class's own package and assigns fields directly): {@code
+ * public} anywhere, anything non-private within the same package; a {@code private}, cross-package
+ * {@code protected}, or cross-package package-private superclass field is a compile error. This is
+ * the declared boundary between the two forms: the runtime form's reflection reaches private
+ * superclass fields, the compile-time form does not - no reflection and no {@code opens} are needed
  * at runtime, at the cost of field visibility.
  */
 @SupportedAnnotationTypes("io.cordis4j.core.Inject")
-@SupportedSourceVersion(SourceVersion.RELEASE_21)
 public final class CordisInjectProcessor extends AbstractProcessor {
 
   /** Creates the processor (service-loaded by javac through the module's provides clause). */
   public CordisInjectProcessor() {}
+
+  /** Tracks the newest source version javac offers, not a fixed RELEASE_* constant (m-9). */
+  @Override
+  public SourceVersion getSupportedSourceVersion() {
+    return SourceVersion.latestSupported();
+  }
 
   @Override
   public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
@@ -58,7 +71,7 @@ public final class CordisInjectProcessor extends AbstractProcessor {
       }
       VariableElement field = (VariableElement) element;
       TypeElement owner = (TypeElement) field.getEnclosingElement();
-      failed |= !validate(field, owner);
+      failed |= !validateOwn(field, owner);
       fieldsByClass.computeIfAbsent(owner, unused -> new ArrayList<>()).add(field);
     }
     if (failed) {
@@ -70,7 +83,7 @@ public final class CordisInjectProcessor extends AbstractProcessor {
     return false; // do not claim the annotation: other processors may also react to it
   }
 
-  private boolean validate(VariableElement field, TypeElement owner) {
+  private boolean validateOwn(VariableElement field, TypeElement owner) {
     boolean ok = true;
     if (field.getModifiers().contains(Modifier.STATIC)) {
       error(field, "@Inject field must not be static: " + field);
@@ -109,22 +122,97 @@ public final class CordisInjectProcessor extends AbstractProcessor {
     return ok;
   }
 
-  private void generate(TypeElement owner, List<VariableElement> fields) {
+  /**
+   * Collects the {@code @Inject} fields of {@code owner}'s whole superclass chain (own fields
+   * first), rejecting the ones the generated accessor cannot reach.
+   */
+  private List<VariableElement> collectHierarchy(TypeElement owner, List<VariableElement> own) {
+    List<VariableElement> all = new ArrayList<>(own);
+    for (TypeElement sup = superclass(owner); sup != null; sup = superclass(sup)) {
+      for (Element enclosed : sup.getEnclosedElements()) {
+        if (enclosed.getKind() != ElementKind.FIELD
+            || enclosed.getAnnotation(Inject.class) == null) {
+          continue;
+        }
+        VariableElement field = (VariableElement) enclosed;
+        if (field.getModifiers().contains(Modifier.STATIC)
+            || field.getModifiers().contains(Modifier.FINAL)
+            || field.asType().getKind().isPrimitive()) {
+          error(
+              field,
+              "inherited @Inject field must be non-static, non-final, and of a reference type: "
+                  + field);
+          continue;
+        }
+        if (!reachableFromInjector(field, owner, sup)) {
+          error(
+              field,
+              "inherited @Inject field is not reachable by compile-time generation from "
+                  + owner.getQualifiedName()
+                  + " (public anywhere, or non-private within the same package; the runtime"
+                  + " reflection form is the alternative): "
+                  + field);
+          continue;
+        }
+        all.add(field);
+      }
+    }
+    return all;
+  }
+
+  /** Whether the injector generated next to {@code owner} can assign {@code field} directly. */
+  private static boolean reachableFromInjector(
+      VariableElement field, TypeElement owner, TypeElement declaring) {
+    if (field.getModifiers().contains(Modifier.PRIVATE)) {
+      return false;
+    }
+    if (field.getModifiers().contains(Modifier.PUBLIC)) {
+      return true;
+    }
+    return packageOf(owner).equals(packageOf(declaring));
+  }
+
+  private static TypeElement superclass(TypeElement type) {
+    TypeMirror sup = type.getSuperclass();
+    if (!(sup instanceof DeclaredType declared)) {
+      return null; // java.lang.Object or an interface: nothing to inherit
+    }
+    return (TypeElement) declared.asElement();
+  }
+
+  private void generate(TypeElement owner, List<VariableElement> ownFields) {
     String packageName = packageOf(owner);
     String simpleName = owner.getSimpleName().toString();
     String injectorName = simpleName + "CordisInjector";
     String qualified = packageName.isEmpty() ? injectorName : packageName + "." + injectorName;
     Types types = processingEnv.getTypeUtils();
+    List<VariableElement> fields = collectHierarchy(owner, ownFields);
+    List<String> hierarchy = new ArrayList<>();
+    for (TypeElement sup = superclass(owner); sup != null; sup = superclass(sup)) {
+      hierarchy.add(sup.getQualifiedName().toString());
+    }
     List<String> targetBlocks = new ArrayList<>();
     for (VariableElement field : fields) {
-      String erased = types.erasure(field.asType()).toString();
+      TypeMirror erased = types.erasure(field.asType());
+      if (!typeAccessibleFrom(erased, owner)) {
+        error(
+            field,
+            "@Inject field type "
+                + erased
+                + " is not accessible from "
+                + owner.getQualifiedName()
+                + "'s package (the generated injector references it directly): "
+                + field);
+        continue;
+      }
+      String erasedName = erased.toString();
       String qualifier = field.getAnnotation(Inject.class).qualifier();
       targetBlocks.add(
           "        new io.cordis4j.core.Injects.FieldTarget() {\n"
               + "          @Override\n"
               + "          public io.cordis4j.core.ServiceKey<?> key() {\n"
               + "            return io.cordis4j.core.ServiceKey.of("
-              + erased
+              + erasedName
               + ".class, \""
               + escape(qualifier)
               + "\");\n"
@@ -136,17 +224,22 @@ public final class CordisInjectProcessor extends AbstractProcessor {
               + "            instance."
               + field.getSimpleName()
               + " = ("
-              + erased
+              + erasedName
               + ") value;\n"
               + "          }\n"
               + "        }");
+    }
+    if (targetBlocks.isEmpty()) {
+      return; // nothing wireable survived validation; errors (if any) already report why
     }
     String targets = String.join(",\n", targetBlocks);
     String source =
         "package "
             + packageName
             + ";\n\n"
-            + "/** Generated by cordis4j-inject-processor: zero-reflection accessors for @Inject fields. */\n"
+            + "/** Generated by cordis4j-inject-processor: zero-reflection accessors for @Inject fields"
+            + (hierarchy.isEmpty() ? "" : " (including the superclass hierarchy " + hierarchy + ")")
+            + ". */\n"
             + "public final class "
             + injectorName
             + " {\n\n"
@@ -177,9 +270,21 @@ public final class CordisInjectProcessor extends AbstractProcessor {
       try (Writer writer = filer.createSourceFile(qualified, owner).openWriter()) {
         writer.write(source);
       }
-    } catch (IOException e) {
-      throw new IllegalStateException("cannot write generated injector " + qualified, e);
+    } catch (IOException failure) {
+      // A Filer conflict or I/O failure must surface as a compile diagnostic at the source
+      // element, not as an unlocated runtime exception from inside javac.
+      error(owner, "cannot write generated injector " + qualified + ": " + failure);
     }
+  }
+
+  /** Whether the generated code (in {@code owner}'s package) can name {@code erased}. */
+  private static boolean typeAccessibleFrom(TypeMirror erased, TypeElement owner) {
+    if (!(erased instanceof DeclaredType declared)
+        || !(declared.asElement() instanceof TypeElement type)) {
+      return true; // arrays and type variables erode to their bounds; javac resolves those
+    }
+    return type.getModifiers().contains(Modifier.PUBLIC)
+        || packageOf(owner).equals(packageOf(type));
   }
 
   private static String packageOf(TypeElement owner) {
@@ -190,7 +295,25 @@ public final class CordisInjectProcessor extends AbstractProcessor {
   }
 
   private static String escape(String text) {
-    return text.replace("\\", "\\\\").replace("\"", "\\\"");
+    StringBuilder escaped = new StringBuilder(text.length() + 8);
+    for (int i = 0; i < text.length(); i++) {
+      char c = text.charAt(i);
+      switch (c) {
+        case '\\' -> escaped.append("\\\\");
+        case '"' -> escaped.append("\\\"");
+        case '\n' -> escaped.append("\\n");
+        case '\r' -> escaped.append("\\r");
+        case '\t' -> escaped.append("\\t");
+        default -> {
+          if (c < 0x20 || c > 0x7e) {
+            escaped.append(String.format("\\u%04x", (int) c));
+          } else {
+            escaped.append(c);
+          }
+        }
+      }
+    }
+    return escaped.toString();
   }
 
   private void error(Element element, String message) {

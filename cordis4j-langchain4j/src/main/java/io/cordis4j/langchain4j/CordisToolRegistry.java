@@ -6,6 +6,7 @@ package io.cordis4j.langchain4j;
 
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import io.cordis4j.core.Context;
+import io.cordis4j.core.CordisException;
 import io.cordis4j.core.Disposable;
 import io.cordis4j.core.Disposables;
 import io.cordis4j.core.ServiceKey;
@@ -105,6 +106,13 @@ public final class CordisToolRegistry implements Disposable {
                   if (closed) {
                     return Disposables.none();
                   }
+                  String name = tool.toolSpecification().name();
+                  for (CordisToolHandle existing : active.values()) {
+                    if (name.equals(existing.specification().name())) {
+                      throw new CordisException(
+                          "duplicate tool specification name: '" + name + "' (key " + key + ")");
+                    }
+                  }
                   active.put(key, handle);
                 }
                 notifyChanged();
@@ -131,10 +139,20 @@ public final class CordisToolRegistry implements Disposable {
                 active.remove(key);
                 declarations.remove(key);
               }
-              notifyChanged();
+              // No extra notification here: when the fiber ever activated, its own cleanup
+              // already notified the removal; when it never did, the active set never changed.
             });
+    boolean racedDispose;
     synchronized (this) {
-      declarations.put(key, wrapper);
+      if (closed) {
+        racedDispose = true; // a dispose ran between the declaration and this registration
+      } else {
+        declarations.put(key, wrapper);
+        racedDispose = false;
+      }
+    }
+    if (racedDispose) {
+      wrapper.dispose(); // retire right here instead of leaking the declaration into the session
     }
     return wrapper;
   }
@@ -188,7 +206,8 @@ public final class CordisToolRegistry implements Disposable {
     Objects.requireNonNull(name, "name");
     synchronized (this) {
       for (CordisToolHandle handle : active.values()) {
-        if (handle.specification().name().equals(name)) {
+        // name is non-null here; the specification's name may be null and must not throw
+        if (name.equals(handle.specification().name())) {
           return Optional.of(handle);
         }
       }
@@ -215,9 +234,9 @@ public final class CordisToolRegistry implements Disposable {
       handles = new ArrayList<>(declarations.values());
       declarations.clear();
     }
-    for (Disposable handle : handles) {
-      handle.dispose(); // outside the monitor: fibers run their cleanups on this thread
-    }
+    // Aggregated outside the monitor: every fiber's cleanup runs even when an earlier one throws,
+    // and the failures surface together as one DisposeException (the core's disposal discipline).
+    Disposables.composite(handles.toArray(Disposable[]::new)).dispose();
   }
 
   private void requireOpen() {
