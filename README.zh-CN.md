@@ -26,7 +26,7 @@ Disposable db = ctx.plugin(new DatabasePlugin());   // → cache 激活
 db.dispose();                                       // → dependents 先排空，provider 后撤销
 ```
 
-> 状态：v0.3.1（**孵化期**）。语义遵循论文
+> 状态：v0.4.0（**孵化期**）。语义遵循论文
 > [A Programming Paradigm for Spatiotemporal Composability](https://github.com/cordiverse/paper)
 > 第 3–5 节（Algorithm 1–6）的形式化模型；API 是 Java 化的重想（inspired-by），不是对
 > TypeScript 代码的逐行移植。冻结契约与决策日志见
@@ -62,6 +62,10 @@ db.dispose();                                       // → dependents 先排空�
 - `cordis4j-inject-processor` - 注解注入的编译期生成：编译期校验 @Inject 字段并为每个类
   生成免反射 injector。
 - `cordis4j-timer` - 基于 spawn 模型的可逆定时器：一次性与周期回调都是"启动即效应、撤销即停止"。
+- `cordis4j-loader` - cordis 配置格式桥接（上游 `@cordisjs/plugin-loader` / `plugin-include`
+  的格式层）：读取 `cordis.yml`/`.json` 条目树（保留延迟求值的 `!!js` 标签）、按上游语义应用
+  patch 层、解析 dsh 双清单，并映射到核心的 `ComponentSpec` 组合。组件解析交给宿主；
+  不内置 JS 引擎与包管理集成（D28）。
 
 ## 论文概念覆盖度（→ Cordis4j）
 
@@ -80,6 +84,7 @@ db.dispose();                                       // → dependents 先排空�
 | 隔离 realm + 拦截元数据幺半群（§5.1.2） | ✅ | `isolate`、`InterceptMetadata` |
 | 声明式加载器、id 键控 diff、事务性重载（§5.2.1, Alg. 10） | ✅ | `Loader` |
 | Loader 组合 DSL：group/isolate/tree/include（上游对齐） | ✅ | `ComponentSpec`、`reconcileTree`（D26） |
+| cordis 配置格式：条目树、patch 层、dsh 清单（上游对齐） | ✅ | `cordis4j-loader`（D28，格式层） |
 | 字节码级热模块替换（§5.2.2） | ✅ | `cordis4j-hmr` 的 `HotReloadingLoader` |
 | LangChain4j 工具桥接（生态） | ✅ | `cordis4j-langchain4j` 的 `CordisToolRegistry` |
 | Spring 集成（生态） | ✅ | `cordis4j-spring` 的 `ContextFactoryBean` |
@@ -110,14 +115,15 @@ mvn -pl cordis4j-demo exec:java
 ## 构建与质量门禁
 
 ```console
-mvn verify   # enforcer + spotless + 测试（T1-T41，共 148 个）+ jacoco（>= 85%）+ javadoc + 依赖分析
+mvn verify   # enforcer + spotless + 测试（T1-T45，共 188 个）+ jacoco（>= 85%）+ javadoc + 依赖分析
 ```
 
 ## 路线图
 
 - **P4（上游对齐）** - 对齐基准 docs/design/upstream-parity.md 已全部落地：事件模式（D22）、
   定时器模块、intercept 链消费（D23）、注册表视图（D24）、loader 组合 DSL 与 baseUrl
-  （D25/D26）。
+  （D25/D26），以及 `cordis4j-loader` 的 cordis 配置格式层（D28 - 格式层对齐；组件解析、
+  npm 包与 JS 求值按设计保留为宿主策略）。
 - **P3** - ModuleLayer HMR 变体（`docs/design/hmr-evaluation.md` 的阶段 2；阶段 1 零依赖
   ClassLoader 引擎已落地为 `cordis4j-hmr`）与 Quarkus 生态集成（已评估并推迟，
   `docs/design/quarkus-evaluation.md`）。其余 P3 项已落地：注解注入（运行时

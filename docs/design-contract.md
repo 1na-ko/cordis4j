@@ -1,10 +1,9 @@
 # Cordis4j Design Contract
 
-> Status: **v2.7, frozen** (for v0.3.1). Any semantic change must append a new decision-log entry
-> (Section 2) and bump this version. v2.6 carried D25/D26; v2.7 belongs to D27 (HMR class
-> isolation, shipped in 0.3.0) and corrects the header lag; 0.3.1 adds no decision - it repairs
-> the implementation toward this contract and extends the boundary semantics (Section 6) with
-> the repaired compositions.
+> Status: **v2.8, frozen** (for v0.4.0). Any semantic change must append a new decision-log entry
+> (Section 2) and bump this version. v2.6 carried D25/D26; v2.7 belonged to D27 (HMR class
+> isolation, shipped in 0.3.0) and corrected the header lag; v2.8 adds D28 (the cordis
+> configuration-format bridge in cordis4j-loader, shipped in 0.4.0) with boundary semantics 35.
 > Semantic baseline: the Cordis paper, *A Programming Paradigm for Spatiotemporal Composability*,
 > Sections 3-5 (section numbers below refer to that paper); reference implementations:
 > [cordiverse/cordis](https://github.com/cordiverse/cordis) and `@deepseek-ai/cordis`@4.0.1 (MIT).
@@ -82,6 +81,7 @@ contract.
 | D25 | Base directory | Context.baseUrl() returns the nearest base directory bound by this context or an ancestor (empty when none); Context.withBaseUrl(path) derives a child carrying it, like fork(); relative configuration paths (include references) resolve against it | Upstream Context.baseUrl in the immutable-derivation idiom (fork/isolate) |
 | D26 | Loader composition | Loader.reconcileTree flattens a ComponentSpec tree into per-entry load contexts and reconciles through the D18 engine: Group prefixes its children's ids with groupId+':'; Isolate loads its children into a derived isolate(type, realm) context (a per-node realm, disposed once its entries all unload); Include inlines another configuration source resolved against the base directory through a caller-supplied resolver (no file format imposed); duplicate flattened ids fail fast before any change; failures roll back like D18 | Upstream's entry/group/isolate/tree configuration and the include directive in typed form; the flat reconcile(LoaderConfig) is the single-context special case of the same engine |
 | D27 | HMR class isolation | cordis4j-hmr loads each plugin jar into a URLClassLoader parented on the cordis4j-core loader: host classes win over same-named plugin classes (plugins always see the host Plugin type), plugins cannot ship their own versions of host dependencies, cross-plugin same-name classes are distinct copies, and there is no module encapsulation; retraction stays close-and-collect with the GC guarantee of T26/T34 | The stage-1 model of docs/design/hmr-evaluation.md section 5; the child-first (with a cordis4j-core exclusion) and ModuleLayer upgrades are evaluated and reserved in docs/design/hmr-isolation-evaluation.md - code follows only when a real requirement appears |
+| D28 | Format adaptation boundary | cordis4j-loader bridges upstream's cordis configuration **format** - the entry-tree shape of `@cordisjs/plugin-loader` and the patch semantics of `plugin-include` - onto the core's D26 composition, and nothing beyond: reading is faithful (`cordis.yml`/`.yaml`/`.json` roots are lists of entry rows; the delayed `!!js` tag parses to an opaque JsExpr the host interpolates through a pluggable ExpressionEvaluator; unknown fields survive verbatim; a missing id is generated at read time - upstream's ensureId, without the write-back); patch layers keep upstream semantics (insert appends to the root or into a located group; overrides locate by id anywhere in the tree; a name mismatch skips the patch; config replaces wholesale; a later patch in a layer sees earlier inserts); the two dsh manifests (`dsh.bundle.patch`, the ordered `dsh.profile.bundles`) parse without any package-manager integration; the mapping wraps an entry's isolation table as nested Isolate realms (`true` -> `'#'+entryId` local, a label -> `'@'+label` shared, the first table service outermost), drops disabled entries from the mount while keeping their metadata, and hands config/inject/intercept to the host through EntryMeta; component and service-name resolution is an interface (ComponentResolver) - no JS engine, no npm/registry client, no config write-back | The format is the stable contract of the cordis ecosystem; the runtime decisions (what a name resolves to, how an expression evaluates) are host policy on the JVM - the module is a format bridge, not a runtime |
 
 ---
 
@@ -373,6 +373,17 @@ by the module).
 34. Interrupted async activation: a caller interrupted while waiting for pluginAsync loses the
     handle, so it joins the ambient scope - the context's own disposal unloads the fiber whatever
     state it landed in (T41).
+35. Format layer (cordis4j-loader, D28): reading preserves the `!!js` tag as an unevaluated
+    JsExpr and unknown fields verbatim, and generates a missing id (8 hex digits) at read time;
+    an insertion without an id appends to the root, with one it appends into the located group
+    (a missing or non-group target fails the apply); an override locates its row by id anywhere
+    in the tree - a present-but-mismatched name skips the patch, config replaces wholesale, map
+    fields merge by key, and a missing target warns without failing; a later patch in the same
+    layer locates what an earlier one inserted; a package without the `dsh` key declares
+    nothing; the mapping turns `true` into the local realm `#<entryId>`, a label into the shared
+    realm `@<label>` (the first table service wrapping outermost), drops disabled entries (a
+    group's own flag included) from the mount while keeping their metadata, and rejects entries
+    without ids (T42-T45).
 
 ---
 
@@ -412,6 +423,11 @@ by the module).
   reactive-coeffect lifecycle (T25); cordis4j-spring provides a Context bean and @CordisService
   beans that follow bean lifecycles, withdrawing bindings in the stop phase before any bean is
   destroyed so the drain keeps boundary 13/14 (T27, T35).
+- Format bridge (module-level, decision D28): cordis4j-loader reads the cordis configuration
+  format - entry trees with the delayed `!!js` tag, patch layers, and the dsh manifests - and
+  maps it onto the D26 composition; component resolution and expression evaluation stay host
+  policy (T42-T45). The module depends on snakeyaml and jackson-databind; the core stays
+  zero-dependency.
 - HMR (roadmap c, module-level, outside this core contract; no decision-log entry): the evaluation
   (docs/design/hmr-evaluation.md) and the stage-1 engine (cordis4j-hmr) - a zero-dependency
   custom ClassLoader engine with jar-granular module classification, loader close-and-collect

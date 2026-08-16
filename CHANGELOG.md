@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-08-16
+
+### Added
+
+- `cordis4j-loader` (new module): the cordis configuration-format bridge - the JVM counterpart of
+  upstream's `@cordisjs/plugin-loader` and `plugin-include` at the format layer, decision D28.
+  Reads cordis entry trees (`cordis.yml` / `.yaml` / `.json`) with upstream's delayed `!!js` tag
+  preserved as `JsExpr` (the host interpolates through a pluggable `ExpressionEvaluator` - no JS
+  engine ships); unknown fields survive for round-tripping and missing ids are generated at read
+  time (upstream's `ensureId`, 8 hex digits). Applies patch layers with upstream semantics:
+  insertions append to the root or into a located group, overrides locate rows by id anywhere in
+  the tree, a `name` mismatch skips the patch, `config` replaces wholesale, and a later patch sees
+  what an earlier one inserted. Parses both dsh manifests (`dsh.bundle.patch`, the ordered
+  `dsh.profile.bundles`). Maps the tree onto the core's `ComponentSpec` composition: groups pass
+  through, the isolation table flattens into nested realms (`true` is a local `#<id>` realm, a
+  label a shared `@<label>` realm, the first table service wrapping outermost), disabled entries
+  drop out of the mount while their metadata survives, and per-entry config/inject/intercept
+  reach the host through `EntryMeta`. Component and service-name resolution stays with the host
+  (`ComponentResolver`, `builtins` tables). T42-T45; depends on cordis4j-core, snakeyaml, and
+  jackson-databind (this module only - the core stays zero-dependency).
+- Design contract v2.8: decision D28 (format adaptation boundary) and boundary semantics 35
+  (the format layer's fixed clauses); upstream-parity's loader section now records the format
+  layer as aligned.
+
+### Fixed
+
+- The `setInterval` cancellation test (timer) still took its baseline before dispose, so an
+  in-flight tick landing just after the cancellation failed the assertion on loaded machines -
+  the same snapshot race 0.3.1 fixed for the domain-revert case; the baseline now follows
+  dispose (T30).
+
 ## [0.3.1] - 2026-08-16
 
 ### Fixed

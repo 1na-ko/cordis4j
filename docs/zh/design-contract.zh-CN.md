@@ -1,10 +1,10 @@
 # Cordis4j 设计契约（Design Contract）
 
 > 本文档是英文规范本 [../design-contract.md](../design-contract.md) 的中文译本（规范本语言：英文）。
-> 如有歧义，以英文版为准。最近同步：2026-08-15（v2.1，追加 D21）。
-> 状态：**v2.7 冻结**（对应 v0.3.1）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
-> v2.6 承载 D25/D26；v2.7 归属 D27（HMR 类隔离，随 0.3.0 发布）并修正头部滞后；0.3.1 不追加
-> 决策——它使实现回归本契约，并以修复后的组合语义扩展边界语义（§6）。
+> 如有歧义，以英文版为准。最近同步：2026-08-16（v2.8，追加 D28）。
+> 状态：**v2.8 冻结**（对应 v0.4.0）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
+> v2.6 承载 D25/D26；v2.7 归属 D27（HMR 类隔离，随 0.3.0 发布）并修正头部滞后；v2.8 追加
+> D28（cordis4j-loader 的 cordis 配置格式桥接，随 0.4.0 发布）与边界语义 35。
 > 语义基线：cordis 论文《A Programming Paradigm for Spatiotemporal Composability》§3–§5（下文引用章节号即论文章节号）；
 > 参考实现：cordiverse/cordis 与 @deepseek-ai/cordis@4.0.1（MIT）。
 > Cordis4j 是论文语义的 **Java 重想**（inspired-by，非逐行移植）；与上游 TS API 的一切差异在 §5 显式声明。
@@ -69,6 +69,7 @@
 | D25 | 基础目录 | Context.baseUrl() 返回本 context 或祖先绑定的最近基础目录（无则空）；Context.withBaseUrl(path) 派生携带它的子 context（同 fork 惯例）；相对配置路径（include 引用）以它解析 | 上游 Context.baseUrl 的不可变派生惯用形态（fork/isolate） |
 | D26 | Loader 组合 | Loader.reconcileTree 把 ComponentSpec 树展平为逐条目装载上下文并经 D18 引擎调和：Group 以 groupId+':' 前缀其子条目 id；Isolate 把子条目装载进派生的 isolate(type, realm) 上下文（每节点一个域，其条目全部卸载后 dispose）；Include 经调用方提供的 resolver 内联另一配置源（相对基础目录解析，不限定文件格式）；展平重复 id 在任何变更前立即失败；失败回滚同 D18 | 上游 entry/group/isolate/tree 配置与 include 指令的类型化形态；平面 reconcile(LoaderConfig) 是同一引擎的单上下文特例 |
 | D27 | HMR 类隔离 | cordis4j-hmr 把每个插件 jar 装入父为 cordis4j-core 加载器的 URLClassLoader：宿主类优先于插件内同名类（插件永远看到宿主 Plugin 类型），插件不能自带宿主依赖的其他版本，跨插件同名类各持副本，无模块封装；回收保持 close-and-collect 与 T26/T34 的 GC 保证 | docs/design/hmr-evaluation.md 第 5 节的阶段 1 模型；child-first（含 cordis4j-core 排除）与 ModuleLayer 升级已在 docs/design/hmr-isolation-evaluation.md 评估并预留——仅在真实需求出现时再动代码 |
+| D28 | 格式适配边界 | cordis4j-loader 桥接上游 cordis 配置**格式**——`@cordisjs/plugin-loader` 的条目树形状与 `plugin-include` 的 patch 语义——到核心 D26 组合之上，且仅此而已：读取忠实（`cordis.yml`/`.yaml`/`.json` 根为条目行列表；延迟 `!!js` 标签解析为不透明 JsExpr，由宿主经可插拔 ExpressionEvaluator 插值；未知字段逐字保留；缺省 id 读取时生成——上游 ensureId，但不写回）；patch 层保持上游语义（insert 追加根或定位 group；override 按 id 递归定位；name 不匹配跳过；config 整体替换；同层后继 patch 可见先前 insert）；两个 dsh 清单（`dsh.bundle.patch`、有序 `dsh.profile.bundles`）解析而不集成包管理器；映射把条目的隔离表包装为嵌套 Isolate 域（`true` → `'#'+entryId` 本地域，label → `'@'+label` 共享域，表首服务最外层），disabled 条目退出装载但保留元数据，config/inject/intercept 经 EntryMeta 交宿主；组件与服务名解析是接口（ComponentResolver）——不内置 JS 引擎、不做 npm/registry 客户端、不写回配置 | 格式是 cordis 生态的稳定契约；运行时决策（名字解析为什么、表达式如何求值）在 JVM 上是宿主策略——本模块是格式桥，不是运行时 |
 
 ---
 
@@ -315,6 +316,13 @@
     无法清理的孤儿（T40）。
 34. 被中断的异步激活：等待 pluginAsync 的调用者被中断后失去句柄，句柄随之进入 ambient——
     无论 fiber 落在何种状态，context 自身的销毁都会卸载它（T41）。
+35. 格式层（cordis4j-loader，D28）：读取保留 `!!js` 标签为不求值的 JsExpr、未知字段逐字保留，
+    缺省 id 读取时生成（8 位十六进制）；无 id 的 insert 追加根列表，带 id 追加进定位 group
+    （目标缺失或非 group 使整个 apply 失败）；override 按 id 在树内任意位置定位——name 存在
+    但不匹配则跳过该 patch，config 整体替换，map 字段按键合并，目标缺失仅告警不失败；同层
+    后续 patch 可定位先前 insert 的行；无 `dsh` 键的包不声明任何内容；映射把 `true` 变成本地域
+    `#<entryId>`、label 变成共享域 `@<label>`（表首服务最外层），disabled 条目（含 group 自身
+    开关沿链继承）退出装载但保留元数据，无 id 条目拒绝映射（T42-T45）。
 
 ---
 
@@ -346,6 +354,9 @@
   `CordisTool` 服务暴露为遵循反应式协效应生命周期的 LangChain4j 工具（T25）；cordis4j-spring
   提供 Context bean 与遵循 bean 生命周期的 @CordisService bean，并在任何 bean 销毁前的 stop
   阶段撤回绑定，使 drain 保持边界 13/14（T27、T35）。
+- 格式桥接（模块级，决策 D28）：cordis4j-loader 读取 cordis 配置格式——含延迟 `!!js` 标签的
+  条目树、patch 层、dsh 双清单——并映射到 D26 组合；组件解析与表达式求值保留为宿主策略
+  （T42-T45）。本模块依赖 snakeyaml 与 jackson-databind；核心保持零依赖。
 - HMR（路线图 c，模块级，处于本核心契约之外；不追加决策条目）：评估
   （docs/design/hmr-evaluation.md）与阶段 1 引擎（cordis4j-hmr）——零依赖自定义 ClassLoader
   引擎，jar 粒度模块分类、加载器 close-and-collect 回收、基于核心 Loader 的事务性重载（T26）。
