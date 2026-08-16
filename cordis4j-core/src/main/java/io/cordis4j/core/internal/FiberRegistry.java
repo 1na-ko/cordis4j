@@ -155,6 +155,9 @@ final class FiberRegistry {
         // a LOADING fiber seen from another thread is a racing activation, not a cycle.
         throw new CyclicDependencyException(describeCycle(fiber));
       }
+      if (fiber.retired || fiber.failed) {
+        return; // raced retirement between selection and activation: stay down
+      }
       if (fiber.state != FiberState.INACTIVE) {
         return; // an activation that already landed, or is landing on another thread, owns it
       }

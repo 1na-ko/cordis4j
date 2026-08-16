@@ -349,7 +349,22 @@ public final class ContextImpl implements Context {
       // The fiber's landing state is now unknown (never started, failed, or ACTIVE), and the
       // caller is about to lose it - ambient ownership keeps it reachable for disposal when
       // the context itself is disposed, instead of leaking an unloadable fiber.
-      track(fibers.handle(fiber));
+      Disposable orphan = fibers.handle(fiber);
+      boolean owned = false;
+      try {
+        track(orphan);
+        owned = true;
+      } catch (IllegalStateException contextDisposed) {
+        // The context is already disposing: nobody will ever run the ambient handle, so the
+        // orphan retires and unloads right here instead of leaking (possibly still ACTIVE).
+        // The interruption flag must not leak into that unload: its inertia wait would abort
+        // with IllegalStateException instead of waiting for the in-flight activation to land.
+        Thread.interrupted();
+      }
+      if (!owned) {
+        orphan.dispose();
+        Thread.currentThread().interrupt(); // keep the interruption visible to the caller
+      }
       throw new CordisException("Interrupted while activating an async plugin", interrupted);
     }
     Disposable handle = fibers.handle(fiber);
@@ -493,10 +508,30 @@ public final class ContextImpl implements Context {
       }
       disposed = true;
     }
-    ambient.dispose(); // unloads fibers and joins their spawned tasks, LIFO
-    ExecutorService service = executor;
-    if (service != null) {
-      service.close(); // wait for remaining carrier threads to land
+    Throwable pending = null;
+    try {
+      ambient.dispose(); // unloads fibers and joins their spawned tasks, LIFO
+    } catch (RuntimeException | Error failure) {
+      pending = failure;
+    } finally {
+      // The executor closes even when the ambient teardown throws: its carrier threads would
+      // otherwise outlive the context with no remaining path to reach them (disposed is already
+      // final, so a half-done dispose could never be retried).
+      ExecutorService service = executor;
+      if (service != null) {
+        try {
+          service.close(); // wait for remaining carrier threads to land
+        } catch (RuntimeException | Error closeFailure) {
+          if (pending != null) {
+            pending.addSuppressed(closeFailure);
+          } else {
+            pending = closeFailure;
+          }
+        }
+      }
+    }
+    if (pending != null) {
+      throw Throwables.sneak(pending); // the ambient failure still propagates (T7 discipline)
     }
   }
 

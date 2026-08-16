@@ -19,10 +19,18 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** T19: virtual-thread activation and reversible task spawning (paper Section 4.3.3). */
+/**
+ * T19: virtual-thread activation and reversible task spawning (paper Section 4.3.3). T41: the
+ * interrupted-caller path keeps the fiber reachable for later cleanup. T49: when that interruption
+ * races a concurrent context dispose, the caller still receives the CordisException (not the
+ * registrar's IllegalStateException) and the orphaned fiber is retired and unloaded right in the
+ * interruption handler.
+ */
 class AsyncPluginTest {
 
   record Counter(AtomicInteger value) {}
+
+  static class Marker implements Service {}
 
   @Test
   @DisplayName("T19 pluginAsync 在虚拟线程上执行，注册可撤销，返回值清理最先执行")
@@ -143,6 +151,78 @@ class AsyncPluginTest {
 
     plugin = null;
     assertTrue(settle(ref), "中断路径的 fiber 必须经 ambient 句柄可清理（修复前成为不可卸载的孤儿）");
+  }
+
+  @Test
+  @DisplayName("T49 中断路径撞上并发 dispose：仍抛 CordisException，孤儿 fiber 就地兜底卸载")
+  void interruptedActivationRacingDisposeKeepsTheExceptionType() throws Exception {
+    Context ctx = Contexts.create();
+    CountDownLatch applying = new CountDownLatch(1);
+    CountDownLatch ambientDrained = new CountDownLatch(1);
+    AtomicReference<AsyncPlugin> plugin = new AtomicReference<>();
+    AsyncPlugin slow =
+        c -> {
+          applying.countDown();
+          try {
+            Thread.sleep(400); // hold the activation open across the dispose
+          } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt(); // land anyway, like the cancel(true) attempts
+          }
+          return Disposables.none();
+        };
+    plugin.set(slow);
+    WeakReference<AsyncPlugin> ref = new WeakReference<>(slow);
+
+    // A sentinel binding whose stop() signals that dispose() has passed its ambient phase; its
+    // removal is tracked by the ambient scope, which the interruption path then fails to join.
+    ctx.provide(
+        ServiceKey.of(Marker.class),
+        new Marker() {
+          @Override
+          public void stop() {
+            ambientDrained.countDown();
+          }
+        });
+
+    Thread main = Thread.currentThread();
+    Thread closer =
+        Thread.ofVirtual()
+            .start(
+                () -> {
+                  try {
+                    applying.await();
+                    ctx.dispose(); // blocks in executor.close() until the activation lands
+                  } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                  }
+                });
+    Thread interrupter =
+        Thread.ofVirtual()
+            .start(
+                () -> {
+                  try {
+                    ambientDrained.await(); // disposed=true and ambient closed are both final
+                  } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                  }
+                  main.interrupt();
+                });
+
+    CordisException failure =
+        assertThrows(CordisException.class, () -> ctx.pluginAsync(plugin.get()));
+    assertTrue(
+        failure.getCause() instanceof InterruptedException,
+        "中断必须以 CordisException 包装报告，而不是 ambient 已销毁的 IllegalStateException");
+    Thread.interrupted(); // clear the restored flag so later joins are unaffected
+
+    interrupter.join(TimeUnit.SECONDS.toMillis(2));
+    assertFalse(interrupter.isAlive());
+    closer.join(TimeUnit.SECONDS.toMillis(5));
+    assertFalse(closer.isAlive(), "dispose 必须等激活落定后完成（executor 关闭）");
+
+    plugin.set(null);
+    slow = null; // release the last local reference so the settle probe can observe collection
+    assertTrue(settle(ref), "兜底路径必须就地退休并卸载孤儿 fiber（修复前 fiber 泄漏且异常类型被换成 ISE）");
   }
 
   private static boolean settle(WeakReference<?> ref) throws InterruptedException {
