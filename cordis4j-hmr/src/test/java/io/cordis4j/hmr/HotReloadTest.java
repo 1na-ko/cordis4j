@@ -11,6 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.cordis4j.core.Context;
 import io.cordis4j.core.Contexts;
+import io.cordis4j.core.DisposeException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
@@ -291,5 +292,43 @@ class HotReloadTest {
         IllegalStateException.class,
         () -> hrl.load("c", jar("c.jar", greetingPlugin("GreetingPlugin", "c"))));
     assertTrue(settle(a, 5000) && settle(b, 5000), "dispose 后全部插件代码必须可回收");
+  }
+
+  private static String failingCleanupPlugin() {
+    return "package p1;\n"
+        + "public class FailingCleanupPlugin implements io.cordis4j.core.Plugin {\n"
+        + "  public io.cordis4j.core.Disposable apply(io.cordis4j.core.Context ctx) {\n"
+        + "    ctx.provide(\"on\");\n"
+        + "    return io.cordis4j.core.Disposables.of(() -> {\n"
+        + "      throw new RuntimeException(\"cleanup-boom\");\n"
+        + "    });\n"
+        + "  }\n"
+        + "}\n";
+  }
+
+  @Test
+  @DisplayName("T62 dispose 遇组件 teardown 抛异常：异常传播但代码撤销照常完成")
+  void disposeStillDetachesCodeWhenATeardownThrows() throws Exception {
+    Context ctx = Contexts.create();
+    HotReloadingLoader hrl = HotReloadingLoader.of(ctx);
+    PluginHandle bad =
+        hrl.load(
+            "bad",
+            TestJars.compileJar(
+                dir,
+                "bad.jar",
+                List.of(new TestJars.Source("p1.FailingCleanupPlugin", failingCleanupPlugin()))));
+    PluginHandle good =
+        hrl.load(
+            "good",
+            TestJars.compileJar(
+                dir, "good.jar", List.of(new TestJars.Source("p1.NumberPlugin", numberPlugin(7)))));
+    assertEquals("on", ctx.get(String.class));
+
+    assertThrows(DisposeException.class, hrl::dispose, "teardown 失败必须聚合传播");
+    assertThrows(
+        IllegalStateException.class, bad::plugin, "teardown 失败不得阻断代码撤销：句柄必须照常 detach（jar 句柄释放）");
+    assertThrows(IllegalStateException.class, good::plugin, "其余组件的句柄同样 detach");
+    assertTrue(ctx.find(String.class).isEmpty(), "绑定必须已撤回");
   }
 }
