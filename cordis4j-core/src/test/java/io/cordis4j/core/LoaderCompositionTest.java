@@ -303,4 +303,28 @@ class LoaderCompositionTest {
 
     assertFalse(leaked.get(), "嵌套内层域的键必须包含外层链，不得与同 label 的顶层域合并（顶层看不到嵌套域内的绑定）");
   }
+
+  @Test
+  @DisplayName("T64 循环 include 的解析器：深度上限 fail-fast，不再栈溢出")
+  void cyclicIncludesFailFastAtTheDepthLimit() {
+    Context ctx = Contexts.create();
+    Loader loader = Loader.of(ctx);
+    java.util.List<ComponentSpec> cyclic = new java.util.ArrayList<>();
+    cyclic.add(
+        new ComponentSpec.Include(
+            Path.of("self"),
+            file -> {
+              cyclic.clear();
+              cyclic.add(new ComponentSpec.Include(Path.of("self"), unused -> cyclic));
+              return cyclic;
+            }));
+    CordisException failure =
+        assertThrows(
+            CordisException.class,
+            () -> loader.reconcileTree(cyclic),
+            "宿主解析器返回自引用 include 链时必须以 CordisException fail-fast");
+    assertTrue(
+        failure.getMessage().contains("include nesting"),
+        "错误信息必须指向 include 深度：" + failure.getMessage());
+  }
 }

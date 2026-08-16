@@ -34,6 +34,16 @@ import org.yaml.snakeyaml.nodes.Tag;
  * {@code ensureId}, minus the write-back this module deliberately does not do): the parsed entry is
  * stable for as long as the host holds it, and hosts wanting stable reloads across re-reads should
  * give their entries explicit ids.
+ *
+ * <p><b>Known parsing differences vs upstream js-yaml's JSON_SCHEMA</b> (deliberate, by decision
+ * D28's fail-fast bias): SnakeYAML's SafeConstructor accepts merge keys ({@code <<}) and typed
+ * scalars (timestamps, and other tags upstream's JSON_SCHEMA would reject) instead of erroring or
+ * flattening them the way js-yaml does, and truthiness follows Java (only {@code Boolean} values)
+ * rather than js-yaml's wider falsy set. Reading stays safe-constructor throughout: no arbitrary
+ * type instantiation is possible. The {@code !!js} tag is <em>never evaluated here</em> - the host
+ * that interpolates a {@link JsExpr} through its {@code ExpressionEvaluator} takes responsibility
+ * for treating the expression text as untrusted input (an evaluation engine must sandbox or reject
+ * it, exactly like upstream's host-side {@code Function} evaluation).
  */
 public final class CordisConfig {
 

@@ -30,6 +30,9 @@ import java.util.Objects;
  */
 public final class Loader implements Disposable {
 
+  /** Guards against cyclic or pathological include chains during flattening. */
+  private static final int INCLUDE_DEPTH_LIMIT = 64;
+
   /** One running entry: what was loaded, into which context, and its isolation realm (if any). */
   private record Loaded(ComponentEntry entry, Context loadContext, IsolatedDomain domain) {}
 
@@ -140,7 +143,7 @@ public final class Loader implements Disposable {
     }
     List<IsolatedDomain> createdDomains = new ArrayList<>();
     List<Flat> withDomains = new ArrayList<>();
-    flattenToFlats(specs, ctx, "", "", baseUrl, null, withDomains, createdDomains);
+    flattenToFlats(specs, ctx, "", "", baseUrl, null, 0, withDomains, createdDomains);
     Map<String, Flat> desired = new LinkedHashMap<>();
     try {
       for (Flat flat : withDomains) {
@@ -312,8 +315,14 @@ public final class Loader implements Disposable {
       String domainPath,
       Path baseUrl,
       IsolatedDomain domain,
+      int includeDepth,
       List<Flat> out,
       List<IsolatedDomain> createdDomains) {
+    if (includeDepth > INCLUDE_DEPTH_LIMIT) {
+      // A host resolver that keeps returning includes (cyclic or chained) would otherwise
+      // recurse until the stack overflows; fail fast with a diagnosable exception instead.
+      throw new CordisException("include nesting exceeds " + INCLUDE_DEPTH_LIMIT + " levels");
+    }
     for (ComponentSpec spec : specs) {
       switch (spec) {
         case ComponentSpec.Entry entry ->
@@ -326,6 +335,7 @@ public final class Loader implements Disposable {
                 domainPath,
                 baseUrl,
                 domain,
+                includeDepth,
                 out,
                 createdDomains);
         case ComponentSpec.Isolate isolate -> {
@@ -341,7 +351,15 @@ public final class Loader implements Disposable {
             createdDomains.add(realm);
           }
           flattenToFlats(
-              isolate.children(), realm.derived, prefix, key, baseUrl, realm, out, createdDomains);
+              isolate.children(),
+              realm.derived,
+              prefix,
+              key,
+              baseUrl,
+              realm,
+              includeDepth,
+              out,
+              createdDomains);
         }
         case ComponentSpec.Include include -> {
           Path absolute = baseUrl.resolve(include.file());
@@ -352,6 +370,7 @@ public final class Loader implements Disposable {
               domainPath,
               baseUrl,
               domain,
+              includeDepth + 1,
               out,
               createdDomains);
         }
