@@ -37,9 +37,12 @@ public final class Loader implements Disposable {
    * An isolation realm created by a composition: its derived context and how many of its entries
    * are currently loaded. The derived context is disposed once no entry of the realm remains.
    *
-   * <p>Each realm is keyed by its position in the composition tree (prefix, type, realm label) and
-   * reused across reconciles, so an unchanged subtree keeps its derived context - and with it its
-   * running components - instead of reloading on every reconcile.
+   * <p>Each realm is keyed by its isolate-chain path - the sequence of nested realms from the root,
+   * group prefixes excluded - and reused across reconciles, so an unchanged subtree keeps its
+   * derived context (and with it its running components) instead of reloading on every reconcile.
+   * Groups do not constitute isolation boundaries: the same label under different groups of one
+   * root is one shared realm (upstream's GlobalRealm), while a nested inner realm is always
+   * distinct from a top-level one carrying the same label.
    */
   private static final class IsolatedDomain {
     final String key;
@@ -137,7 +140,7 @@ public final class Loader implements Disposable {
     }
     List<IsolatedDomain> createdDomains = new ArrayList<>();
     List<Flat> withDomains = new ArrayList<>();
-    flattenToFlats(specs, ctx, "", baseUrl, null, withDomains, createdDomains);
+    flattenToFlats(specs, ctx, "", "", baseUrl, null, withDomains, createdDomains);
     Map<String, Flat> desired = new LinkedHashMap<>();
     try {
       for (Flat flat : withDomains) {
@@ -306,6 +309,7 @@ public final class Loader implements Disposable {
       List<ComponentSpec> specs,
       Context loadContext,
       String prefix,
+      String domainPath,
       Path baseUrl,
       IsolatedDomain domain,
       List<Flat> out,
@@ -319,14 +323,17 @@ public final class Loader implements Disposable {
                 group.children(),
                 loadContext,
                 prefix + group.id() + ":",
+                domainPath,
                 baseUrl,
                 domain,
                 out,
                 createdDomains);
         case ComponentSpec.Isolate isolate -> {
-          // Two isolate nodes with the same position and label share one realm by declaration;
-          // the same position across reconciles keeps it, so unchanged entries do not reload.
-          String key = prefix + isolate.type().getName() + '/' + isolate.realm();
+          // Two isolate nodes share one realm when their full isolate-chain paths are equal:
+          // groups do not enter the path (same label under different groups of one root is one
+          // shared realm), while every enclosing realm does (a nested inner realm is distinct
+          // from a top-level one with the same label).
+          String key = domainPath + isolate.type().getName() + '/' + isolate.realm() + ':';
           IsolatedDomain realm = domains.get(key);
           if (realm == null) {
             realm = new IsolatedDomain(key, loadContext.isolate(isolate.type(), isolate.realm()));
@@ -334,7 +341,7 @@ public final class Loader implements Disposable {
             createdDomains.add(realm);
           }
           flattenToFlats(
-              isolate.children(), realm.derived, prefix, baseUrl, realm, out, createdDomains);
+              isolate.children(), realm.derived, prefix, key, baseUrl, realm, out, createdDomains);
         }
         case ComponentSpec.Include include -> {
           Path absolute = baseUrl.resolve(include.file());
@@ -342,6 +349,7 @@ public final class Loader implements Disposable {
               include.resolver().apply(absolute),
               loadContext,
               prefix,
+              domainPath,
               baseUrl,
               domain,
               out,
