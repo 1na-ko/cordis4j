@@ -13,6 +13,7 @@ import io.cordis4j.core.SupplyConflictException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -49,8 +50,11 @@ final class ServiceRegistry {
   /**
    * The effective realm for a type: the nearest isolation override walking up from this context, or
    * null when none exists (the default realm).
+   *
+   * <p>Package-visible: {@link FiberRegistry} rewrites declared dependency keys with it at
+   * registration, so the dependents index and the notify/withdraw store keys agree.
    */
-  private String effectiveRealm(Class<?> type) {
+  String effectiveRealm(Class<?> type) {
     for (ContextImpl context = owner; context != null; context = context.parent) {
       String realm;
       synchronized (context.registry) {
@@ -73,7 +77,7 @@ final class ServiceRegistry {
    * override already applied) - the registry view of the upstream parity baseline.
    */
   synchronized Map<ServiceKey<?>, Object> snapshot() {
-    Map<ServiceKey<?>, Object> snapshot = new java.util.LinkedHashMap<>();
+    Map<ServiceKey<?>, Object> snapshot = new LinkedHashMap<>();
     for (Map.Entry<ServiceKey<?>, Binding> entry : store.entrySet()) {
       snapshot.put(entry.getKey(), entry.getValue().service());
     }
@@ -89,13 +93,23 @@ final class ServiceRegistry {
     Object token = new Object();
     Binding existing = put(storeKey, checked, supplier, token);
     if (supplier != null) {
-      root().fibers.supplied(supplier, key);
+      root().fibers.supplied(supplier, storeKey); // the withdrawal drain walks store keys
     }
-    if (existing != null && existing.service() instanceof Service previousService) {
-      previousService.stop(); // overwrite semantics, contract Section 6.4
-    }
-    if (checked instanceof Service started) {
-      started.start();
+    try {
+      if (existing != null && existing.service() instanceof Service previousService) {
+        previousService.stop(); // overwrite semantics, contract Section 6.4
+      }
+      if (checked instanceof Service started) {
+        started.start();
+      }
+    } catch (Throwable failure) {
+      // A start/stop hook failure must not leave an orphan binding: the removal disposable
+      // has not reached the caller yet, so nobody else could ever remove it.
+      removeIfBound(storeKey, token);
+      if (supplier != null) {
+        root().fibers.unsupplied(supplier, storeKey);
+      }
+      throw Throwables.sneak(failure);
     }
     root().fibers.notifyBound(storeKey); // Algorithm 3: activating classification
     return Disposables.of(
@@ -106,7 +120,7 @@ final class ServiceRegistry {
           root().fibers.withdraw(storeKey); // Theorem 63: drain dependents before leaving
           removeIfBound(storeKey, token);
           if (supplier != null) {
-            root().fibers.unsupplied(supplier, key);
+            root().fibers.unsupplied(supplier, storeKey);
           }
           if (checked instanceof Service stopped) {
             stopped.stop();
@@ -114,14 +128,15 @@ final class ServiceRegistry {
         });
   }
 
-  synchronized <T> T get(ServiceKey<T> key) {
+  <T> T get(ServiceKey<T> key) {
     for (ContextImpl context = owner; context != null; context = context.parent) {
-      String realm;
-      synchronized (context.registry) {
-        realm = context.registry.realmOverrides.get(key.type());
+      ServiceKey<T> lookup;
+      Binding binding;
+      synchronized (context.registry) { // each level's tables read under that level's monitor
+        String realm = context.registry.realmOverrides.get(key.type());
+        lookup = ServiceKey.of(key.type(), realm != null ? realm : key.qualifier());
+        binding = context.registry.store.get(lookup);
       }
-      ServiceKey<T> lookup = ServiceKey.of(key.type(), realm != null ? realm : key.qualifier());
-      Binding binding = context.registry.store.get(lookup);
       if (binding != null) {
         return lookup.type().cast(binding.service());
       }
@@ -147,11 +162,6 @@ final class ServiceRegistry {
         });
   }
 
-  /**
-   * Resolves interception metadata for a key along the chain (paper Section 5.1.2): all bindings
-   * merge from the root toward the owner when every one of them is an {@link InterceptMetadata};
-   * otherwise the nearest binding wins.
-   */
   /**
    * Collects the interception metadata bound along the tree for a key, from the root to the owner
    * context: the consumption form of upstream's resolveConfig (decision D23) - callers merge the

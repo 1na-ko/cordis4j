@@ -36,12 +36,18 @@ public final class Loader implements Disposable {
   /**
    * An isolation realm created by a composition: its derived context and how many of its entries
    * are currently loaded. The derived context is disposed once no entry of the realm remains.
+   *
+   * <p>Each realm is keyed by its position in the composition tree (prefix, type, realm label) and
+   * reused across reconciles, so an unchanged subtree keeps its derived context - and with it its
+   * running components - instead of reloading on every reconcile.
    */
   private static final class IsolatedDomain {
+    final String key;
     final Context derived;
     int active;
 
-    IsolatedDomain(Context derived) {
+    IsolatedDomain(String key, Context derived) {
+      this.key = key;
       this.derived = derived;
     }
   }
@@ -52,6 +58,7 @@ public final class Loader implements Disposable {
   private final Context ctx;
   private final Map<String, Loaded> running = new LinkedHashMap<>();
   private final Map<String, Disposable> handles = new LinkedHashMap<>();
+  private final Map<String, IsolatedDomain> domains = new LinkedHashMap<>();
   private boolean disposed;
 
   private Loader(Context ctx) {
@@ -140,7 +147,7 @@ public final class Loader implements Disposable {
       }
     } catch (RuntimeException | Error failure) {
       for (IsolatedDomain domain : createdDomains) {
-        domain.derived.dispose();
+        discardDomain(domain); // freshly created, nothing reused depends on them
       }
       throw failure;
     }
@@ -180,6 +187,9 @@ public final class Loader implements Disposable {
           handles.put(flat.id(), handle);
           if (flat.domain() != null) {
             flat.domain().active++;
+            // A realm drained during the unload phase may be repopulated by this load; it is
+            // no longer disposable.
+            pendingDisposals.remove(flat.domain());
           }
           compensation.add(
               () -> {
@@ -197,14 +207,19 @@ public final class Loader implements Disposable {
     } catch (RuntimeException | Error failure) {
       for (IsolatedDomain domain : createdDomains) {
         if (domain.active == 0) {
-          domain.derived.dispose();
+          discardDomain(domain);
         }
       }
       rollback(compensation, failure);
+      for (IsolatedDomain domain : pendingDisposals) {
+        if (domain.active == 0) { // rollback may have repopulated some realms
+          discardDomain(domain);
+        }
+      }
       throw failure;
     }
     for (IsolatedDomain domain : pendingDisposals) {
-      domain.derived.dispose();
+      discardDomain(domain);
     }
   }
 
@@ -226,7 +241,7 @@ public final class Loader implements Disposable {
     for (int i = ids.length - 1; i >= 0; i--) {
       try {
         unload(ids[i], null);
-      } catch (RuntimeException failure) {
+      } catch (Throwable failure) { // an Error must not abort the remaining unloads
         failures.add(failure);
       }
     }
@@ -252,10 +267,16 @@ public final class Loader implements Disposable {
         if (pendingDisposals != null) {
           pendingDisposals.add(loaded.domain());
         } else {
-          loaded.domain().derived.dispose();
+          discardDomain(loaded.domain());
         }
       }
     }
+  }
+
+  /** Removes a drained realm from the reuse table and disposes its derived context. */
+  private void discardDomain(IsolatedDomain domain) {
+    domains.remove(domain.key);
+    domain.derived.dispose();
   }
 
   private void rollback(List<Runnable> compensation, Throwable cause) {
@@ -268,7 +289,7 @@ public final class Loader implements Disposable {
     }
   }
 
-  private static void flattenToFlats(
+  private void flattenToFlats(
       List<ComponentSpec> specs,
       Context loadContext,
       String prefix,
@@ -288,10 +309,16 @@ public final class Loader implements Disposable {
                 out,
                 createdDomains);
         case ComponentSpec.Isolate isolate -> {
-          Context derived = loadContext.isolate(isolate.type(), isolate.realm());
-          IsolatedDomain domain = new IsolatedDomain(derived);
-          createdDomains.add(domain);
-          flattenToFlats(isolate.children(), derived, prefix, baseUrl, out, createdDomains);
+          // Two isolate nodes with the same position and label share one realm by declaration;
+          // the same position across reconciles keeps it, so unchanged entries do not reload.
+          String key = prefix + isolate.type().getName() + '/' + isolate.realm();
+          IsolatedDomain domain = domains.get(key);
+          if (domain == null) {
+            domain = new IsolatedDomain(key, loadContext.isolate(isolate.type(), isolate.realm()));
+            domains.put(key, domain);
+            createdDomains.add(domain);
+          }
+          flattenToFlats(isolate.children(), domain.derived, prefix, baseUrl, out, createdDomains);
         }
         case ComponentSpec.Include include -> {
           Path absolute = baseUrl.resolve(include.file());

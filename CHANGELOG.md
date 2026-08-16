@@ -5,6 +5,57 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-08-16
+
+### Fixed
+
+- Fiber registry leak on the unload early-return path (core): a fiber that was reactively
+  drained, failed before landing, or never satisfied stayed indexed forever once its declaration
+  was disposed, pinning its whole owner subtree (plugin instances and, under HMR, class loaders).
+  The early return now unregisters retired/failed fibers (T36).
+- Isolate x inject composition (core): dependency declarations indexed under the raw declared key
+  while provide/notify/withdraw speak the realm-rewritten store key, so reactive dependents inside
+  an isolated subtree never received activation or drain notifications. Declarations now index
+  under the effective key, supplied keys are recorded as store keys, and declaration mediation
+  (D13) compares on the same key base (T37).
+- `pluginAsync` interruption (core): an interrupted waiter left an unloadable fiber behind. The
+  activation is now cancelled best-effort and the fiber handle joins the ambient scope, so the
+  context's own disposal reclaims it (T41).
+- `provide` hook failures (core): a throwing `Service.start()`/`stop()` left an orphan binding
+  nobody could remove. The binding is rolled back before the failure propagates (T40).
+- Fiber state machine (core): a throwing disposer could leave a fiber stuck in UNLOADING,
+  invisible to notify and withdraw forever. `unload` lands the state in a `finally` block and
+  rethrows afterwards, preserving the T7 propagation contract.
+- Event dispatch under D19 (core): `emit`/`bail`/`waterfall` ran listeners, filters, and fold
+  functions inside the bus monitor - a blocking listener pinned a virtual-thread carrier and
+  serialized unrelated event operations. Dispatch now snapshots under the monitor and runs user
+  code outside it; `once` fires exactly once under racing dispatches (T38).
+- Double-activation window (core): two racing `notifyBound` calls could both activate the same
+  fiber. `activate` now rechecks the state under the lock; same-thread dependency cycles still
+  throw `CyclicDependencyException`.
+- Loader Isolate domains (core): every reconcile rebuilt each realm's derived context, so
+  unchanged Isolate subtrees reloaded unconditionally (and their services restarted); a realm
+  drained during the unload phase and repopulated by the load phase of the same reconcile was
+  disposed while still in use. Realms are now keyed by tree position and reused; disposal happens
+  only once the realm is truly drained (T39).
+- Concurrency hardening (core, hmr): atomic idempotence for `Disposables.of` and
+  `Context.dispose`; per-level monitors for chain lookups in `ServiceRegistry.get` (the old
+  method-level lock guarded only the caller's own registry); uid allocation under the registry
+  lock; `HotReloadingLoader.toString` under the monitor; `PluginHandle` fields published
+  `volatile`.
+- HMR loader edges (hmr): `reload(id, jar)` keeps the recorded plugin class instead of
+  re-discovering it; `unload(id)` reconciles before dropping the source, so a failed reconcile no
+  longer leaks the class loader (and its jar file handle).
+- `Loader.dispose` survives `Error`s from a component's teardown instead of aborting the remaining
+  unloads.
+
+### Changed
+
+- `Timers.setInterval` documents its fixed-delay schedule explicitly.
+- Documentation consistency: the design-contract header now states v2.7 (D27 belonged to 0.3.0
+  but the version lagged), the duplicated boundary-semantics numbering is de-duplicated, and the
+  README test counts match the suite (T1-T41, 148 tests).
+
 ## [0.3.0] - 2026-08-15
 
 ### Added

@@ -7,6 +7,7 @@ package io.cordis4j.core;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Static factories for common {@link Disposable} shapes.
@@ -35,21 +36,18 @@ public final class Disposables {
   /**
    * Wraps an action so that it runs at most once, on the first {@link Disposable#dispose()}.
    *
+   * <p>The once guarantee is atomic: two threads racing to dispose the same wrapper still run
+   * {@code action} exactly once.
+   *
    * @param action the reversion action
    * @return a disposable that executes {@code action} exactly once
    * @throws NullPointerException if {@code action} is null
    */
   public static Disposable of(Runnable action) {
     Objects.requireNonNull(action, "action");
-    return new Disposable() {
-      private boolean disposed;
-
-      @Override
-      public void dispose() {
-        if (disposed) {
-          return;
-        }
-        disposed = true;
+    AtomicBoolean disposed = new AtomicBoolean();
+    return () -> {
+      if (disposed.compareAndSet(false, true)) {
         action.run();
       }
     };

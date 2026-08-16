@@ -1,8 +1,10 @@
 # Cordis4j Design Contract
 
-> Status: **v2.6, frozen** (for v0.2.1). Any semantic change must append a new decision-log entry
-> (Section 2) and bump this version. v2.6 appends D27 (HMR class isolation model) on top of
-> v2.5 (D25/D26).
+> Status: **v2.7, frozen** (for v0.3.1). Any semantic change must append a new decision-log entry
+> (Section 2) and bump this version. v2.6 carried D25/D26; v2.7 belongs to D27 (HMR class
+> isolation, shipped in 0.3.0) and corrects the header lag; 0.3.1 adds no decision - it repairs
+> the implementation toward this contract and extends the boundary semantics (Section 6) with
+> the repaired compositions.
 > Semantic baseline: the Cordis paper, *A Programming Paradigm for Spatiotemporal Composability*,
 > Sections 3-5 (section numbers below refer to that paper); reference implementations:
 > [cordiverse/cordis](https://github.com/cordiverse/cordis) and `@deepseek-ai/cordis`@4.0.1 (MIT).
@@ -346,11 +348,31 @@ by the module).
     and a realm is disposed once its entries all unload; includes inline their source resolved
     against the base directory; duplicate flattened ids fail fast before any change; a failing
     component rolls the tree reconcile back to the previous set (T33).
-23. Annotation injection: an instance's @Inject fields form one declaration (D21) - populated
+28. Annotation injection: an instance's @Inject fields form one declaration (D21) - populated
     when every field key resolves, cleared when a relied supply withdraws or the declaration
     retires, refilled on re-satisfaction; fields hold activation-time snapshots, so an ambient
     overwrite does not touch an activated declaration, while a supplying fiber's unload drains
     it through the fiber-level supply relation (T24).
+29. Dispatch reentrancy: listeners, filters, and fold functions run outside the bus monitor
+    (D19); a listener may register, unregister, and re-emit mid-dispatch without deadlocking; a
+    blocked listener does not serialize unrelated event operations; a once listener fires exactly
+    once under racing dispatches (T38).
+30. Isolate x inject: dependency declarations index, and declaration mediation (D13) compares,
+    on the effective (realm-rewritten) store key - the same base provide, notify, and withdraw
+    speak - so reactive dependents inside an isolated subtree classify normally; a default-realm
+    binding never satisfies an isolated declaration (isolation hides the outer default binding,
+    matching upstream) (T37).
+31. Registry release: disposing the declaration of a fiber that never ran a full unload -
+    reactively drained, failed, or never satisfied - removes the fiber from the registry, so its
+    owner subtree becomes collectable (T36).
+32. Realm reuse: the loader keys each isolation realm by its tree position (prefix, type, realm)
+    and reuses its derived context across reconciles; unchanged entries inside the realm do not
+    reload, and a realm is disposed only once truly drained after the whole reconcile lands (T39).
+33. Hook rollback: a Service.start()/stop() failure during provide removes the binding before
+    the failure propagates, leaving no orphan the caller could not dispose (T40).
+34. Interrupted async activation: a caller interrupted while waiting for pluginAsync loses the
+    handle, so it joins the ambient scope - the context's own disposal unloads the fiber whatever
+    state it landed in (T41).
 
 ---
 

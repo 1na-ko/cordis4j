@@ -65,8 +65,17 @@ final class FiberRegistry {
       Set<ServiceKey<?>> dependencies,
       FiberBody body,
       boolean propagateFailure) {
-    Fiber fiber = new Fiber(nextUid++, owner, Set.copyOf(dependencies), body, propagateFailure);
+    // Declarations index under the effective (realm-rewritten) keys: provide, get, and the
+    // notify/withdraw notifications all speak store keys, so an isolated subtree must too,
+    // or its reactive dependents would never be classified (Algorithm 3, Theorem 63).
+    Set<ServiceKey<?>> effective = new LinkedHashSet<>(dependencies.size());
+    for (ServiceKey<?> key : dependencies) {
+      String realm = owner.registry.effectiveRealm(key.type());
+      effective.add(realm != null ? ServiceKey.of(key.type(), realm) : key);
+    }
+    Fiber fiber;
     synchronized (lock) {
+      fiber = new Fiber(nextUid++, owner, Set.copyOf(effective), body, propagateFailure);
       fibers.put(fiber.uid, fiber);
       for (ServiceKey<?> key : fiber.dependencies) {
         dependents.computeIfAbsent(key, unused -> new LinkedHashSet<>()).add(fiber);
@@ -141,8 +150,13 @@ final class FiberRegistry {
    */
   void activate(Fiber fiber) {
     synchronized (lock) {
-      if (activationStack.contains(fiber)) {
+      if (fiber.state == FiberState.LOADING && Domains.fiber() == fiber) {
+        // Re-entering this fiber's own activation on the same thread is a dependency cycle;
+        // a LOADING fiber seen from another thread is a racing activation, not a cycle.
         throw new CyclicDependencyException(describeCycle(fiber));
+      }
+      if (fiber.state != FiberState.INACTIVE) {
+        return; // an activation that already landed, or is landing on another thread, owns it
       }
       fiber.state = FiberState.LOADING;
       activationStack.push(fiber);
@@ -157,13 +171,14 @@ final class FiberRegistry {
     } catch (Throwable thrown) {
       failure = thrown;
     }
+    Domains.set(previousDomain, previousFiber); // thread-local restore, no registry state
+    if (failure == null && extra != null) {
+      fiber.domain.track(extra); // reverted first: the plugin's own cleanup, LIFO - before
+      // the ACTIVE publication, so no observer can dispose the domain mid-track
+    }
     synchronized (lock) {
       activationStack.pop();
-      Domains.set(previousDomain, previousFiber);
       if (failure == null) {
-        if (extra != null) {
-          fiber.domain.track(extra); // reverted first: the plugin's own cleanup, LIFO
-        }
         fiber.state = FiberState.ACTIVE;
         lock.notifyAll();
       }
@@ -195,20 +210,37 @@ final class FiberRegistry {
         }
       }
       if (fiber.state != FiberState.ACTIVE) {
-        return;
+        // An INACTIVE fiber reached without running the full unload: reactively drained,
+        // failed before landing, or never satisfied. A retired or failed one leaves the
+        // registry here, or it would pin its whole owner subtree forever.
+        if (fiber.state == FiberState.INACTIVE && (fiber.retired || fiber.failed)) {
+          unregister(fiber);
+        }
+        return; // UNLOADING: another thread owns the teardown and its own cleanup
       }
       fiber.state = FiberState.UNLOADING;
     }
     withdrawSupplies(fiber); // L-Leave: stop supplying before any effect reverts (Theorem 63)
-    fiber.domain.dispose(); // outside the lock: teardown may join spawned tasks
-    synchronized (lock) {
-      fiber.state = FiberState.INACTIVE;
-      fiber.domain = new EffectScopeImpl(); // fresh accumulator for the next activation
-      if (fiber.retired || fiber.failed) {
-        unregister(fiber); // only a retired or failed fiber leaves the registry;
-        // a reactively unloaded fiber stays indexed, ready to re-activate
+    Throwable disposal = null;
+    try {
+      fiber.domain.dispose(); // outside the lock: teardown may join spawned tasks
+    } catch (Throwable thrown) {
+      disposal = thrown;
+    } finally {
+      // The state machine must land even when a disposer throws, or the fiber would be
+      // stuck in UNLOADING - invisible to notifyBound and withdraw forever.
+      synchronized (lock) {
+        fiber.state = FiberState.INACTIVE;
+        fiber.domain = new EffectScopeImpl(); // fresh accumulator for the next activation
+        if (fiber.retired || fiber.failed) {
+          unregister(fiber); // only a retired or failed fiber leaves the registry;
+          // a reactively unloaded fiber stays indexed, ready to re-activate
+        }
+        lock.notifyAll();
       }
-      lock.notifyAll();
+    }
+    if (disposal != null) {
+      throw Throwables.sneak(disposal); // the disposal failure still propagates (T7)
     }
   }
 
