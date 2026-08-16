@@ -19,7 +19,8 @@ import java.util.Objects;
  *
  * @param id locates the target row (required for overrides; for insertions, the group the rows are
  *     appended into - null appends to the root list)
- * @param name the expected component name of the target (null skips the check)
+ * @param name the expected component name of the target (null skips the check; the name is a pure
+ *     match guard - it never renames the target)
  * @param insert the rows to insert
  * @param config the replacement configuration tree
  * @param group the replacement group flag, or null to keep the target's

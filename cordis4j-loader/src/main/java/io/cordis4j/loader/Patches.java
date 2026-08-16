@@ -147,7 +147,7 @@ public final class Patches {
   private static CordisEntry overrideEntry(CordisEntry entry, Patch patch) {
     return new CordisEntry(
         entry.id(),
-        patch.name() != null ? patch.name() : entry.name(),
+        entry.name(), // name is a match guard, never a rename (upstream semantics)
         patch.config() != null ? patch.config() : entry.config(),
         patch.group() != null ? patch.group() : entry.group(),
         patch.disabled() != null ? patch.disabled() : entry.disabled(),
