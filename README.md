@@ -124,7 +124,7 @@ mid-conversation); run it with `mvn -pl cordis4j-langchain4j exec:java`.
 ## Build & quality gates
 
 ```console
-mvn verify   # enforcer + spotless + tests (T1-T60, 218 tests) + jacoco (>= 85%) + javadoc + dependency analysis
+mvn verify   # enforcer + spotless + tests (T1-T64, 222 tests) + jacoco (>= 85%) + javadoc + dependency analysis
 ```
 
 ## Roadmap
