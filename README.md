@@ -29,7 +29,7 @@ Disposable db = ctx.plugin(new DatabasePlugin());   // → cache activates
 db.dispose();                                       // → dependents drain first, then the provider
 ```
 
-> Status: v0.3.0 - **incubating**. Semantics follow the formal model in
+> Status: v0.4.0 - **incubating**. Semantics follow the formal model in
 > [A Programming Paradigm for Spatiotemporal Composability](https://github.com/cordiverse/paper)
 > (Sections 3-5, Algorithms 1-6); the API is a Java re-imagining, not a line-by-line port of the
 > TypeScript code. See [docs/design-contract.md](docs/design-contract.md) for the frozen contract
@@ -70,6 +70,11 @@ disappear, or are replaced.
   @Inject fields at compile time and emits a zero-reflection injector per class.
 - `cordis4j-timer` — reversible timers over the spawn model: one-shot and periodic callbacks are
   effects whose inverse stops them.
+- `cordis4j-loader` — the cordis configuration-format bridge (upstream `@cordisjs/plugin-loader` /
+  `plugin-include` at the format layer): reads `cordis.yml`/`.json` entry trees with the delayed
+  `!!js` tag, applies patch layers, parses the dsh manifests, and maps everything onto the core's
+  `ComponentSpec` composition. Component resolution stays with the host; no JS engine, no
+  package-manager integration (D28).
 
 ## Feature map (paper → Cordis4j)
 
@@ -88,6 +93,7 @@ disappear, or are replaced.
 | Isolation realms + interception metadata monoid (§5.1.2) | ✅ | `isolate`, `InterceptMetadata` |
 | Declarative loader, id-keyed diff, transactional reload (§5.2.1, Alg. 10) | ✅ | `Loader` |
 | Loader composition DSL: group/isolate/tree/include (upstream parity) | ✅ | `ComponentSpec`, `reconcileTree` (D26) |
+| cordis configuration format: entry trees, patch layers, dsh manifests (upstream parity) | ✅ | `cordis4j-loader` (D28, format layer) |
 | Bytecode-level hot module replacement (§5.2.2) | ✅ | `HotReloadingLoader` in `cordis4j-hmr` |
 | LangChain4j tool bridge (ecosystem) | ✅ | `CordisToolRegistry` in `cordis4j-langchain4j` |
 | Spring integration (ecosystem) | ✅ | `ContextFactoryBean` in `cordis4j-spring` |
@@ -118,14 +124,16 @@ mid-conversation); run it with `mvn -pl cordis4j-langchain4j exec:java`.
 ## Build & quality gates
 
 ```console
-mvn verify   # enforcer + spotless + tests (T1-T35, 133 tests) + jacoco (>= 85%) + javadoc + dependency analysis
+mvn verify   # enforcer + spotless + tests (T1-T45, 188 tests) + jacoco (>= 85%) + javadoc + dependency analysis
 ```
 
 ## Roadmap
 
 - **P4 (upstream parity)** — the parity baseline docs/design/upstream-parity.md is fully landed:
   event modes (D22), the timer module, intercept-chain consumption (D23), registry views (D24),
-  and the loader composition DSL with baseUrl (D25/D26).
+  the loader composition DSL with baseUrl (D25/D26), and the cordis configuration format layer in
+  `cordis4j-loader` (D28 - aligned at the format layer; component resolution, npm packages, and
+  JS evaluation stay host policy by design).
 - **P3** — the ModuleLayer HMR variant (stage 2 of `docs/design/hmr-evaluation.md`; stage 1, the
   zero-dependency ClassLoader engine, has landed as `cordis4j-hmr`) and the Quarkus integration
   (evaluated and deferred in `docs/design/quarkus-evaluation.md`). The other P3 items have landed:

@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -25,6 +26,11 @@ import java.util.function.Predicate;
  *
  * <p>A second, function-shaped listener list powers the bail and waterfall dispatch modes (decision
  * D22): functions fold event values; a null result means "no contribution".
+ *
+ * <p>Concurrency: the listener tables are guarded by this bus's monitor for registration,
+ * unregistration, and snapshotting only - listeners, filters, and fold functions are user code and
+ * always run <em>outside</em> the monitor (decision D19), so a blocking listener neither pins a
+ * virtual-thread carrier nor serializes unrelated event operations.
  */
 final class EventBus {
 
@@ -41,8 +47,14 @@ final class EventBus {
     }
   }
 
-  /** A registration that unregisters itself on its first firing. */
+  /**
+   * A registration that unregisters itself on its first firing. The consumed flag is set atomically
+   * before the listener runs, so two racing dispatches fire a once-listener exactly once even
+   * though both may have snapshotted it.
+   */
   private static final class OneShot extends Registration {
+    final AtomicBoolean consumed = new AtomicBoolean();
+
     OneShot(Class<?> type, Predicate<Object> filter, Consumer<Object> listener) {
       super(type, filter, listener);
     }
@@ -75,7 +87,12 @@ final class EventBus {
     } else {
       listeners.add(registration);
     }
-    return Disposables.of(() -> listeners.remove(registration));
+    return Disposables.of(
+        () -> {
+          synchronized (EventBus.this) {
+            listeners.remove(registration);
+          }
+        });
   }
 
   synchronized <E> Disposable once(Class<E> type, Predicate<E> filter, Consumer<E> listener) {
@@ -88,7 +105,12 @@ final class EventBus {
     Consumer<Object> typed = (Consumer<Object>) listener;
     OneShot oneShot = new OneShot(type, unchecked, typed);
     listeners.add(oneShot);
-    return Disposables.of(() -> listeners.remove(oneShot));
+    return Disposables.of(
+        () -> {
+          synchronized (EventBus.this) {
+            listeners.remove(oneShot);
+          }
+        });
   }
 
   synchronized <E> Disposable fold(Class<E> type, Function<E, E> listener) {
@@ -98,17 +120,32 @@ final class EventBus {
     Function<Object, Object> typed = (Function<Object, Object>) listener;
     FunctionRegistration registration = new FunctionRegistration(type, event -> true, typed);
     functions.add(registration);
-    return Disposables.of(() -> functions.remove(registration));
+    return Disposables.of(
+        () -> {
+          synchronized (EventBus.this) {
+            functions.remove(registration);
+          }
+        });
   }
 
-  synchronized <E> void emit(E event) {
-    for (Registration registration : List.copyOf(listeners)) {
-      if (registration.type.isInstance(event) && registration.filter.test(event)) {
-        if (registration instanceof OneShot) {
-          listeners.remove(registration); // a once listener is consumed by its firing
-        }
-        registration.listener.accept(event);
+  <E> void emit(E event) {
+    List<Registration> snapshot;
+    synchronized (this) {
+      snapshot = List.copyOf(listeners);
+    }
+    for (Registration registration : snapshot) {
+      if (!registration.type.isInstance(event) || !registration.filter.test(event)) {
+        continue;
       }
+      if (registration instanceof OneShot oneShot) {
+        if (!oneShot.consumed.compareAndSet(false, true)) {
+          continue; // a racing dispatch already consumed this once-listener
+        }
+        synchronized (this) {
+          listeners.remove(oneShot); // consumed by its firing
+        }
+      }
+      registration.listener.accept(event); // user code, outside the monitor
     }
     if (parent != null) {
       parent.emit(event);
@@ -119,14 +156,19 @@ final class EventBus {
    * Runs the function listeners (this context first, then ancestors) and returns the first non-null
    * result; a result short-circuits the remaining listeners and ancestors.
    */
-  synchronized <E> Optional<E> bail(E event) {
-    for (FunctionRegistration registration : List.copyOf(functions)) {
-      if (registration.type().isInstance(event) && registration.filter().test(event)) {
-        @SuppressWarnings("unchecked")
-        E result = (E) registration.listener().apply(event);
-        if (result != null) {
-          return Optional.of(result);
-        }
+  <E> Optional<E> bail(E event) {
+    List<FunctionRegistration> snapshot;
+    synchronized (this) {
+      snapshot = List.copyOf(functions);
+    }
+    for (FunctionRegistration registration : snapshot) {
+      if (!registration.type().isInstance(event) || !registration.filter().test(event)) {
+        continue;
+      }
+      @SuppressWarnings("unchecked")
+      E result = (E) registration.listener().apply(event); // user code, outside the monitor
+      if (result != null) {
+        return Optional.of(result);
       }
     }
     if (parent != null) {
@@ -139,15 +181,21 @@ final class EventBus {
    * Folds the function listeners (this context first, then ancestors): a non-null result becomes
    * the next input; the final value is returned (the event itself when nobody contributed).
    */
-  synchronized <E> E waterfall(E event) {
+  <E> E waterfall(E event) {
     E accumulated = event;
-    for (FunctionRegistration registration : List.copyOf(functions)) {
-      if (registration.type().isInstance(accumulated) && registration.filter().test(accumulated)) {
-        @SuppressWarnings("unchecked")
-        E result = (E) registration.listener().apply(accumulated);
-        if (result != null) {
-          accumulated = result;
-        }
+    List<FunctionRegistration> snapshot;
+    synchronized (this) {
+      snapshot = List.copyOf(functions);
+    }
+    for (FunctionRegistration registration : snapshot) {
+      if (!registration.type().isInstance(accumulated)
+          || !registration.filter().test(accumulated)) {
+        continue;
+      }
+      @SuppressWarnings("unchecked")
+      E result = (E) registration.listener().apply(accumulated); // user code, outside the monitor
+      if (result != null) {
+        accumulated = result;
       }
     }
     if (parent != null) {

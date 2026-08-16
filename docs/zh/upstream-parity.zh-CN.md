@@ -35,6 +35,7 @@
 | 上游 | Cordis4j | 状态 |
 |---|---|---|
 | `Loader` 与 `EntryTree` 配置：`entry` / `group` / `isolate` / `tree` 组合、事务性调和 | `Loader` 调和引擎（D18、T21）+ `ComponentSpec` 之上的 `reconcileTree`（Group 前缀、Isolate 域、Include 内联）（D26、T33） | 类型化形态已对齐；每节点隔离域取代上游的 realm 表 |
+| cordis 配置格式：`cordis.yml`/`.json` 条目树、patch 层（`plugin-include`）、dsh bundle/profile 双清单 | `cordis4j-loader`（D28、T42-T45）：忠实读取（延迟 `!!js` → `JsExpr`、未知字段保留、读取时生成缺省 id）、上游 patch 语义、双清单解析，并携带逐条目元数据映射到 `ComponentSpec` | 格式层已对齐；组件解析、JS 求值、npm 包与配置写回按决策 D28 属宿主策略 |
 | YAML `include` 指令（`@cordisjs/include`） | `ComponentSpec.Include` 经调用方提供的 resolver 相对基础目录内联另一配置源——不限定文件格式 | 类型化形态已对齐（无 YAML 依赖） |
 
 ### 2.3 @cordisjs/hmr
@@ -76,3 +77,5 @@
   D23、T31）；合并策略留在调用方。
 - ~~P4-4（loader DSL）~~ 已落地：group/isolate/tree 组合、include 内联与 baseUrl 派生
   （D25/D26、T33）；注册表视图已单独落地（D24、T32）。
+- ~~P4-5（cordis 配置格式）~~ 已落地：`cordis4j-loader` 读取条目树、patch 层与 dsh 清单并
+  映射到组合模型（契约 v2.8，D28、T42-T45）——格式层对齐。

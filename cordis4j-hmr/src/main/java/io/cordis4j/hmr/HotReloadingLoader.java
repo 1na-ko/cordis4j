@@ -10,6 +10,7 @@ import io.cordis4j.core.Disposable;
 import io.cordis4j.core.Disposables;
 import io.cordis4j.core.Loader;
 import io.cordis4j.core.LoaderConfig;
+import io.cordis4j.core.Plugin;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -147,7 +148,8 @@ public final class HotReloadingLoader implements Disposable {
   /**
    * Re-imports {@code id} from a newly written jar (its unique {@link io.cordis4j.core.Plugin}
    * implementation discovered) and swaps the component's fiber; transactional as {@link
-   * #reload(String)}.
+   * #reload(String)}. The recorded plugin class of the id is kept: a reload of an explicitly pinned
+   * class stays pinned.
    *
    * @param id the component id
    * @param jar the replacement plugin jar
@@ -160,7 +162,10 @@ public final class HotReloadingLoader implements Disposable {
    * @throws NullPointerException if {@code id} or {@code jar} is null
    */
   public synchronized PluginHandle reload(String id, Path jar) {
-    return reload(id, jar, null);
+    Objects.requireNonNull(id, "id");
+    Objects.requireNonNull(jar, "jar");
+    Source source = sources.get(id);
+    return reload(id, jar, source == null ? null : source.mainClass);
   }
 
   /**
@@ -213,8 +218,10 @@ public final class HotReloadingLoader implements Disposable {
     if (!sources.containsKey(id)) {
       throw new IllegalStateException("component not loaded: " + id);
     }
+    loader.reconcile(configWithout(id));
+    // Only once the fiber is safely unloaded: a failed reconcile must leave the source and
+    // the handle in place, or the class loader (and its jar file handle) would leak.
     sources.remove(id);
-    loader.reconcile(config());
     registry.uninstall(id);
   }
 
@@ -284,7 +291,17 @@ public final class HotReloadingLoader implements Disposable {
     return new LoaderConfig(entries);
   }
 
-  private LoaderConfig configWith(String swappedId, io.cordis4j.core.Plugin fresh) {
+  private LoaderConfig configWithout(String skipped) {
+    List<ComponentEntry> entries = new ArrayList<>();
+    for (String id : sources.keySet()) {
+      if (!id.equals(skipped)) {
+        entries.add(new ComponentEntry(id, registry.handle(id).orElseThrow().plugin()));
+      }
+    }
+    return new LoaderConfig(entries);
+  }
+
+  private LoaderConfig configWith(String swappedId, Plugin fresh) {
     List<ComponentEntry> entries = new ArrayList<>();
     for (String id : sources.keySet()) {
       entries.add(
@@ -295,7 +312,7 @@ public final class HotReloadingLoader implements Disposable {
   }
 
   @Override
-  public String toString() {
+  public synchronized String toString() {
     return "HotReloadingLoader{ctx=" + ctx + ", ids=" + sources.keySet() + "}";
   }
 }

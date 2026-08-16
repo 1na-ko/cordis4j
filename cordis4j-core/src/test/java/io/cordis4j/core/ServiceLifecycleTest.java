@@ -5,6 +5,8 @@
 package io.cordis4j.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -60,6 +62,46 @@ class ServiceLifecycleTest {
             })
         .dispose();
     assertEquals(List.of(), events, "普通对象不得触发任何钩子");
+  }
+
+  @Test
+  @DisplayName("T40 start 抛异常：异常传播且绑定不留孤儿（get 不再解析）")
+  void startFailureLeavesNoOrphanBinding() {
+    Context ctx = Contexts.create();
+    class FailingStart implements Service {
+      @Override
+      public void start() {
+        throw new RuntimeException("start-boom");
+      }
+    }
+    class QuietService implements Service {}
+    assertThrows(
+        RuntimeException.class,
+        () -> ctx.provide(ServiceKey.of(FailingStart.class), new FailingStart()));
+    assertTrue(ctx.find(ServiceKey.of(FailingStart.class)).isEmpty(), "start 失败后不得残留孤儿绑定");
+    ctx.provide(
+        ServiceKey.of(QuietService.class), new QuietService()); // a healthy service registers fine
+    assertTrue(ctx.find(ServiceKey.of(QuietService.class)).isPresent(), "失败后必须可继续注册其他绑定");
+  }
+
+  @Test
+  @DisplayName("T40 覆盖旧服务时 stop(旧) 抛异常：异常传播且不留孤儿绑定")
+  void overwriteStopFailureLeavesNoOrphanBinding() {
+    Context ctx = Contexts.create();
+    class BadStop implements Service {
+      @Override
+      public void stop() {
+        throw new RuntimeException("stop-boom");
+      }
+    }
+    ctx.provide(ServiceKey.of(BadStop.class), new BadStop());
+    assertThrows(
+        RuntimeException.class,
+        () -> ctx.provide(ServiceKey.of(BadStop.class), new BadStop()),
+        "覆盖时旧服务 stop 抛出的异常必须传播");
+    assertTrue(ctx.find(ServiceKey.of(BadStop.class)).isEmpty(), "覆盖失败的键不得残留孤儿绑定");
+    ctx.provide(ServiceKey.of(BadStop.class), new BadStop());
+    assertTrue(ctx.find(ServiceKey.of(BadStop.class)).isPresent(), "失败后同键必须可重新注册");
   }
 
   private static final class HookedService implements Service {

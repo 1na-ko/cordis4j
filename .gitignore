@@ -14,3 +14,4 @@ target/
 .mvn-local/
 .flattened-pom.xml
 cordis-paper/
+.zcode/

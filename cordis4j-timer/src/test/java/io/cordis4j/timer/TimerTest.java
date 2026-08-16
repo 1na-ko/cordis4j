@@ -51,8 +51,13 @@ class TimerTest {
     assertTrue(during >= 2, () -> "周期执行至少两次，实际 " + during);
 
     timer.dispose();
-    Thread.sleep(60);
-    assertEquals(ticks.get(), during, "取消后必须停止");
+    // The baseline is taken AFTER dispose: an in-flight tick landing just after the
+    // cancellation must count toward it, not fail the test (same snapshot race as the
+    // domain-revert case below, seen on loaded CI).
+    Thread.sleep(90);
+    int afterDispose = ticks.get();
+    Thread.sleep(120); // more than two intervals: nothing new may fire
+    assertEquals(afterDispose, ticks.get(), "取消后必须停止");
   }
 
   @Test

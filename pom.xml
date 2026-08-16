@@ -35,17 +35,19 @@
     <module>cordis4j-spring</module>
     <module>cordis4j-inject-processor</module>
     <module>cordis4j-timer</module>
+    <module>cordis4j-loader</module>
   </modules>
 
   <properties>
     <!-- CI-friendly versioning: one property drives every module's version. -->
-    <revision>0.3.0</revision>
+    <revision>0.4.0</revision>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <maven.compiler.release>21</maven.compiler.release>
     <junit.version>5.14.4</junit.version>
     <langchain4j.version>1.19.0</langchain4j.version>
     <jackson.version>2.22.1</jackson.version>
+    <snakeyaml.version>2.6</snakeyaml.version>
     <spring.version>7.0.8</spring.version>
     <maven.compiler.version>3.15.0</maven.compiler.version>
     <maven.surefire.version>3.5.6</maven.surefire.version>

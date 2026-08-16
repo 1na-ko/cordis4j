@@ -9,6 +9,7 @@ import io.cordis4j.core.Context;
 import io.cordis4j.core.CordisException;
 import io.cordis4j.core.Disposable;
 import io.cordis4j.core.Disposables;
+import io.cordis4j.core.DivertedException;
 import io.cordis4j.core.FiberHandle;
 import io.cordis4j.core.InactiveAccessException;
 import io.cordis4j.core.Logger;
@@ -18,6 +19,7 @@ import io.cordis4j.core.ServiceKey;
 import io.cordis4j.core.TriFunction;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -86,13 +88,22 @@ public final class ContextImpl implements Context {
     }
   }
 
-  /** Declaration mediation (paper Algorithm 6): a declarative fiber only sees its own keys. */
+  /**
+   * Declaration mediation (paper Algorithm 6): a declarative fiber only sees its own keys. The
+   * comparison speaks effective (realm-rewritten) keys, the same base the dependency index and the
+   * store use, so a declaration made in an isolated subtree keeps mediating its own realm's keys.
+   */
   private void checkAccess(ServiceKey<?> key) {
     Fiber current = Domains.fiber();
-    if (current != null
-        && current.declarative()
-        && !current.dependencies.contains(key)
-        && !current.providedKeys.contains(key)) {
+    if (current == null || !current.declarative()) {
+      return;
+    }
+    ServiceKey<?> effective = key;
+    String realm = current.owner.registry.effectiveRealm(key.type());
+    if (realm != null) {
+      effective = ServiceKey.of(key.type(), realm);
+    }
+    if (!current.dependencies.contains(effective) && !current.providedKeys.contains(effective)) {
       throw new InactiveAccessException(key, "undeclared access");
     }
   }
@@ -167,7 +178,7 @@ public final class ContextImpl implements Context {
   @Override
   public Map<ServiceKey<?>, Object> services() {
     checkAlive();
-    return java.util.Collections.unmodifiableMap(registry.snapshot());
+    return Collections.unmodifiableMap(registry.snapshot());
   }
 
   @Override
@@ -319,7 +330,7 @@ public final class ContextImpl implements Context {
     checkAlive();
     Objects.requireNonNull(plugin, "plugin");
     Fiber fiber = fibers.register(this, Set.of(), plugin::apply, true);
-    Future<?> activation = executor().submit(() -> fibers.activate(fiber));
+    Future<?> activation = root.executor().submit(() -> fibers.activate(fiber));
     try {
       activation.get(); // wait for the activation to land (inertia of Section 4.3.3)
     } catch (ExecutionException executed) {
@@ -334,6 +345,11 @@ public final class ContextImpl implements Context {
       throw new CordisException("Async plugin activation failed", cause);
     } catch (InterruptedException interrupted) {
       Thread.currentThread().interrupt();
+      activation.cancel(true); // best effort: stop the in-flight activation
+      // The fiber's landing state is now unknown (never started, failed, or ACTIVE), and the
+      // caller is about to lose it - ambient ownership keeps it reachable for disposal when
+      // the context itself is disposed, instead of leaking an unloadable fiber.
+      track(fibers.handle(fiber));
       throw new CordisException("Interrupted while activating an async plugin", interrupted);
     }
     Disposable handle = fibers.handle(fiber);
@@ -395,7 +411,7 @@ public final class ContextImpl implements Context {
           @Override
           public void checkDiverted() {
             if (isDiverted()) {
-              throw new io.cordis4j.core.DivertedException();
+              throw new DivertedException();
             }
           }
         });
@@ -471,10 +487,12 @@ public final class ContextImpl implements Context {
 
   @Override
   public void dispose() {
-    if (disposed) {
-      return;
+    synchronized (this) {
+      if (disposed) {
+        return; // exactly one caller runs the teardown (idempotence is atomic, not advisory)
+      }
+      disposed = true;
     }
-    disposed = true;
     ambient.dispose(); // unloads fibers and joins their spawned tasks, LIFO
     ExecutorService service = executor;
     if (service != null) {

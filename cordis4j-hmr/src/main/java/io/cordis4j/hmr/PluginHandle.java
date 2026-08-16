@@ -24,10 +24,12 @@ import java.util.Objects;
  */
 public final class PluginHandle {
 
-  private Plugin plugin;
-  private ClassLoader strongLoader;
+  // volatile: detach() runs under the registry's monitor while plugin() reads lock-free;
+  // unsynchronized publication would let a reader see a stale instance after a swap.
+  private volatile Plugin plugin;
+  private volatile ClassLoader strongLoader;
   private final WeakReference<ClassLoader> loader;
-  private boolean detached;
+  private volatile boolean detached;
 
   PluginHandle(Plugin plugin, ClassLoader loader) {
     this.plugin = plugin;

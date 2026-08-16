@@ -165,4 +165,50 @@ class LoaderCompositionTest {
     ctx.dispose();
     assertThrows(IllegalStateException.class, ctx::baseUrl, "dispose 后必须拒绝");
   }
+
+  @Test
+  @DisplayName("T39 隔离域跨 reconcile 复用：同实例条目不重载，realm 变化才重载")
+  void isolateDomainsReuseAcrossReconciles() {
+    Context ctx = Contexts.create();
+    Loader loader = Loader.of(ctx);
+    java.util.concurrent.atomic.AtomicInteger activations =
+        new java.util.concurrent.atomic.AtomicInteger();
+    java.util.concurrent.atomic.AtomicInteger siblingLoads =
+        new java.util.concurrent.atomic.AtomicInteger();
+    io.cordis4j.core.Plugin counted =
+        c -> {
+          activations.incrementAndGet();
+          return Disposables.none();
+        };
+    List<ComponentSpec> tree =
+        List.of(
+            new ComponentSpec.Isolate(
+                String.class, "r1", List.of(new ComponentSpec.Entry("a", counted))));
+
+    loader.reconcileTree(tree);
+    loader.reconcileTree(tree); // same instance at the same realm position: must not reload
+    assertEquals(1, activations.get(), "同实例 + 同 realm 位置的二次 reconcile 不得重载（修复前恒重载）");
+
+    loader.reconcileTree(
+        List.of(
+            new ComponentSpec.Isolate(
+                String.class, "r2", List.of(new ComponentSpec.Entry("a", counted)))));
+    assertEquals(2, activations.get(), "realm 变化（重写键变）必须重载");
+
+    loader.reconcileTree(
+        List.of(
+            new ComponentSpec.Isolate(
+                String.class,
+                "r2",
+                List.of(
+                    new ComponentSpec.Entry("a", counted),
+                    new ComponentSpec.Entry(
+                        "b",
+                        c -> {
+                          siblingLoads.incrementAndGet();
+                          return Disposables.none();
+                        })))));
+    assertEquals(2, activations.get(), "仅新增兄弟条目不得重载同 realm 内的既有条目");
+    assertEquals(1, siblingLoads.get(), "新增条目必须装载");
+  }
 }

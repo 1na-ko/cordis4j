@@ -37,6 +37,7 @@
 | Upstream | Cordis4j | Status |
 |---|---|---|
 | `Loader` with `EntryTree` config: `entry` / `group` / `isolate` / `tree` composition, transactional reconcile | `Loader` reconcile engine (D18, T21) + `reconcileTree` over `ComponentSpec` (Group prefixes, Isolate realms, Include inlining) (D26, T33) | Aligned in the typed form; per-node isolation realms instead of upstream's realm table |
+| cordis configuration format: `cordis.yml`/`.json` entry trees, patch layers (`plugin-include`), dsh bundle/profile manifests | `cordis4j-loader` (D28, T42-T45): faithful reading (delayed `!!js` -> `JsExpr`, unknown fields preserved, ids generated at read time), upstream patch semantics, both manifests, and the mapping onto `ComponentSpec` with per-entry metadata | Aligned at the format layer; component resolution, JS evaluation, npm packages, and config write-back are host policy by decision D28 |
 | YAML `include` directives (`@cordisjs/include`) | `ComponentSpec.Include` inlines another source against the base directory through a caller-supplied resolver - no file format imposed | Aligned in the typed form (no YAML dependency) |
 
 ### 2.3 @cordisjs/hmr
@@ -80,3 +81,6 @@ equivalent of exporters. Intentional difference; nothing to port.
   root-first (contract v2.3, D23, T31); merging policy stays with the caller.
 - ~~P4-4 (loader DSL)~~ landed: group/isolate/tree composition, include inlining, and baseUrl
   derivation (D25/D26, T33); the registry view landed separately (D24, T32).
+- ~~P4-5 (cordis configuration format)~~ landed: `cordis4j-loader` reads entry trees, patch
+  layers, and the dsh manifests, and maps them onto the composition (contract v2.8, D28,
+  T42-T45) - aligned at the format layer.

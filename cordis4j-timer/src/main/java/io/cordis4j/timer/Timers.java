@@ -55,6 +55,9 @@ public final class Timers {
    * Runs {@code callback} every {@code periodMillis} until the returned handle (or the owning
    * plugin domain) is disposed.
    *
+   * <p>The schedule is fixed-delay, not fixed-rate: the next period starts after the callback
+   * returns, so a slow callback delays the following tick instead of accumulating backlog.
+   *
    * @param context the context owning the timer
    * @param callback the callback, never null
    * @param periodMillis the period in milliseconds, must be positive
