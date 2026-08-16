@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the realm-rewritten key - a realm declaration satisfied by an ambient qualifier binding of the
   same text now sees that binding inside the body instead of failing activation with a
   `NoSuchServiceException` (dig round 1, T61). Design contract v2.10 extends boundary 36.
+- HMR: `HotReloadingLoader.dispose` completes the code retraction even when a component's
+  teardown throws - the uninstall loop now runs in a finally, so class loaders close and jar file
+  handles release while the aggregated `DisposeException` still propagates (dig round 2, T62).
+- Core/loader: an empty `ComponentSpec.Group` id is rejected like `Entry`'s (dig round 3, T63),
+  and the loader's include flattening enforces a 64-level depth limit, failing fast on cyclic
+  host resolver chains instead of overflowing the stack (dig round 4, T64). `CordisConfig`
+  documents the known parsing differences vs upstream js-yaml's JSON_SCHEMA and the host's
+  `JsExpr` sandboxing responsibility.
 
 ## [0.4.1] - 2026-08-17
 
@@ -68,7 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Loader patch semantics align with upstream include exactly: map fields replace wholesale (null
   keeps the target's - Java records cannot express field absence) and missing insert targets
   warn-and-skip (L-M3/R4, L-M4/R3).
-- Cycle semantics documented as implemented (R2): mutually cyclic declarations stay silently
+- Cycle semantics documented as implemented (R2, T52): mutually cyclic declarations stay silently
   INACTIVE like upstream; `CyclicDependencyException` remains public API for the self-cycle
   re-entry guard only.
 - Design contract v2.9: D5's realm/qualifier key-space note, D23's realm-unrewritten interception

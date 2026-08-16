@@ -5,7 +5,7 @@
 
 /** Cordis4j HMR: bytecode-level hot module replacement on a custom ClassLoader engine. */
 module io.cordis4j.hmr {
-  requires io.cordis4j.core;
+  requires transitive io.cordis4j.core; // the exported API speaks core types
   requires static java.compiler; // the tests compile plugin sources at test time
 
   exports io.cordis4j.hmr;

@@ -5,7 +5,7 @@
 
 /** Cordis4j Spring: a Context bean and @CordisService beans that follow bean lifecycles. */
 module io.cordis4j.spring {
-  requires io.cordis4j.core;
+  requires transitive io.cordis4j.core; // the exported API speaks core types
   requires spring.beans;
   requires spring.context;
   requires spring.core;
