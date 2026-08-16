@@ -40,4 +40,37 @@ class LoggerTest {
           logger.error("error");
         });
   }
+
+  @Test
+  @DisplayName("jul 转发的 LogRecord 保留 logger 名（默认构造会丢失为 null）")
+  void julRecordsCarryTheLoggerName() {
+    java.util.logging.Logger sink = java.util.logging.Logger.getLogger("cordis4j.test.named");
+    java.util.List<java.util.logging.LogRecord> captured =
+        new java.util.concurrent.CopyOnWriteArrayList<>();
+    java.util.logging.Handler handler =
+        new java.util.logging.Handler() {
+          @Override
+          public void publish(java.util.logging.LogRecord record) {
+            captured.add(record);
+          }
+
+          @Override
+          public void flush() {}
+
+          @Override
+          public void close() {}
+        };
+    sink.setUseParentHandlers(false);
+    sink.addHandler(handler);
+    try {
+      Logger.jul("cordis4j.test.named").warn("carry the name");
+      assertEquals(1, captured.size(), "必须发出一条日志");
+      assertEquals(
+          "cordis4j.test.named",
+          captured.get(0).getLoggerName(),
+          "LogRecord 的 loggerName 必须是委托 logger 的名字（默认构造为 null）");
+    } finally {
+      sink.removeHandler(handler);
+    }
+  }
 }

@@ -24,6 +24,10 @@ import java.util.Optional;
  * plugins, so they can be loaded, unloaded, and swapped mid-conversation and are reverted with the
  * session.
  *
+ * <p><em>Not part of the module's API</em>: this is a runnable narrative demo that lives here only
+ * because it exercises this module's own types; treat it as documentation, not as a dependency
+ * target (the jackson {@code requires} of the module exists for it and for test fixtures).
+ *
  * <p>No model provider is dialed - the agent loop is simulated - so this demo runs offline. The
  * session's tool set follows the reactive-coeffect lifecycle: the calculator appears when its
  * plugin loads, disappears when the plugin unloads (hot unload), and is replaced when a different

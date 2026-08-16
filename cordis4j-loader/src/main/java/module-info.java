@@ -8,7 +8,7 @@
  * manifests, and the mapping onto the core's component composition.
  */
 module io.cordis4j.loader {
-  requires io.cordis4j.core;
+  requires transitive io.cordis4j.core; // the exported API speaks core types
   requires java.logging;
   requires org.yaml.snakeyaml;
   requires com.fasterxml.jackson.databind;

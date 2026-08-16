@@ -1,9 +1,11 @@
 # Cordis4j Design Contract
 
-> Status: **v2.8, frozen** (for v0.4.0). Any semantic change must append a new decision-log entry
+> Status: **v2.9, frozen** (for v0.4.1). Any semantic change must append a new decision-log entry
 > (Section 2) and bump this version. v2.6 carried D25/D26; v2.7 belonged to D27 (HMR class
 > isolation, shipped in 0.3.0) and corrected the header lag; v2.8 adds D28 (the cordis
-> configuration-format bridge in cordis4j-loader, shipped in 0.4.0) with boundary semantics 35.
+> configuration-format bridge in cordis4j-loader, shipped in 0.4.0) with boundary semantics 35;
+> v2.9 is the 0.4.1 semantic-clarification batch: boundary semantics 36-44 and the corrections to
+> D5's key-space note, boundaries 29/32/33, and the cycle wording.
 > Semantic baseline: the Cordis paper, *A Programming Paradigm for Spatiotemporal Composability*,
 > Sections 3-5 (section numbers below refer to that paper); reference implementations:
 > [cordiverse/cordis](https://github.com/cordiverse/cordis) and `@deepseek-ai/cordis`@4.0.1 (MIT).
@@ -58,7 +60,7 @@ contract.
 | D2 | Plugin shape | @FunctionalInterface Plugin.apply(Context) -> Disposable; registrations during apply belong to an implicit effect scope | Mirrors the paper's fiber.apply; Java idiom |
 | D3 | Event model | Fully synchronous dispatch; emit runs the current context first, then walks the parent chain (child-to-root); a throwing listener propagates and the remaining listeners are skipped (documented) | Matches upstream; virtual-thread asynchrony in P2 |
 | D4 | Naming | groupId/package io.cordis4j; artifactId cordis4j-core; JPMS module io.cordis4j.core | Verified conflict-free; frozen |
-| D5 | Service keys | ServiceKey<T> = (Class<T> type, String qualifier); the qualifier is a one-dimensional projection of the realm; get(Foo.class) is the default-qualifier sugar | Reserves the extension point for paper Section 6.2 multi-provider services and loader realms, avoiding rework |
+| D5 | Service keys | ServiceKey<T> = (Class<T> type, String qualifier); the qualifier is a one-dimensional projection of the realm; get(Foo.class) is the default-qualifier sugar | Reserves the extension point for paper Section 6.2 multi-provider services and loader realms, avoiding rework. Consequently a realm label and a qualifier of the same text are the same store key - an isolated declaration is satisfied by an ambient binding carrying the same qualifier text (boundary 36) |
 | D6 | Exception taxonomy | CordisException (base) -> NoSuchServiceException (key + lookup path) / InactiveAccessException (declaration checks, D13) / DisposeException (suppressed aggregation) / SupplyConflictException / CyclicDependencyException / DivertedException | Aligns with the two access failures of upstream Algorithm 6 and the remaining guard signals; T7 fixes the aggregation semantics |
 | D7 | Lifecycle | Four-state fiber machine (INACTIVE/LOADING/ACTIVE/UNLOADING); inertia manifests as unload waiting for landing (Section 7) | Paper Sections 4.2/4.3.3 |
 | D8 | Threading (refined by D19) | The core started synchronous; the current concurrency model is D19 | Correct first, concurrent later |
@@ -76,7 +78,7 @@ contract.
 | D20 | Withdrawal order | Unloading a fiber first withdraws every key it supplies (draining all dependents, including still-LOADING ones - the chained unload of inertia) and only then reverts its effects LIFO; a drain-interrupted dependent still resolves the dependency during its teardown | Paper L-Leave/L-Unload and Theorem 63 exactly |
 | D21 | Annotation injection | @Inject(qualifier) fields of an instance, assembled by Injects.injectFields(ctx, instance) into one D11 declaration: activation populates the fields as snapshots, withdrawal/retirement clears them, re-satisfaction refills; assembly fails fast on static/final/primitive fields, and an instance without annotated fields is a no-op | Paper Section 6.4 sanctions annotation-mediated access via runtime reflection where the language has no transparent interception primitive; keeps core zero-dependency (JDK reflection only) |
 | D22 | Event modes | on(type, listener, prepend) inserts before the context's existing listeners; once fires exactly once then unregisters (filter honored, manual removal still possible); a second, function-shaped listener list (fold) powers bail - the first non-null result short-circuits the dispatch, ancestors included - and waterfall - non-null results fold into the next input, null keeps the accumulator; emit stays the consumer-list path; bubbling stays child-to-root | Upstream DispatchMode bail/waterfall plus the prepend option and once, in the synchronous core's typed form (the upstream parity baseline, docs/design/upstream-parity.md); parallel/serial stay out of scope as async dispatch |
-| D23 | Intercept consumption | Context.intercepts(key) collects the interception metadata bound along the tree root-first, nearest-last (the raw chain, no merging); interceptOf stays the nearer-wins monoid over that chain; callers merge the list with any policy | The Java form of upstream's Service.resolveConfig - chain collection is the consumption semantics, merging policy stays in the caller (the upstream parity baseline) |
+| D23 | Intercept consumption | Context.intercepts(key) collects the interception metadata bound along the tree root-first, nearest-last (the raw chain, no merging); interceptOf stays the nearer-wins monoid over that chain; callers merge the list with any policy; interception keys are realm-unrewritten by design - metadata addressing, not resolution | The Java form of upstream's Service.resolveConfig - chain collection is the consumption semantics, merging policy stays in the caller (the upstream parity baseline) |
 | D24 | Registry view | Context.services() snapshots the bindings this context provides (ancestors excluded), keyed by the effective store key with the realm override applied; the snapshot is immutable; enumeration walks the snapshot | The typed form of upstream's registry values/entries; a resolved whole-tree view stays out of scope until the loader composition DSL (parity P4-4) needs it |
 | D25 | Base directory | Context.baseUrl() returns the nearest base directory bound by this context or an ancestor (empty when none); Context.withBaseUrl(path) derives a child carrying it, like fork(); relative configuration paths (include references) resolve against it | Upstream Context.baseUrl in the immutable-derivation idiom (fork/isolate) |
 | D26 | Loader composition | Loader.reconcileTree flattens a ComponentSpec tree into per-entry load contexts and reconciles through the D18 engine: Group prefixes its children's ids with groupId+':'; Isolate loads its children into a derived isolate(type, realm) context (a per-node realm, disposed once its entries all unload); Include inlines another configuration source resolved against the base directory through a caller-supplied resolver (no file format imposed); duplicate flattened ids fail fast before any change; failures roll back like D18 | Upstream's entry/group/isolate/tree configuration and the include directive in typed form; the flat reconcile(LoaderConfig) is the single-context special case of the same engine |
@@ -356,7 +358,9 @@ by the module).
 29. Dispatch reentrancy: listeners, filters, and fold functions run outside the bus monitor
     (D19); a listener may register, unregister, and re-emit mid-dispatch without deadlocking; a
     blocked listener does not serialize unrelated event operations; a once listener fires exactly
-    once under racing dispatches (T38).
+    once under racing dispatches (T38). A once listener whose registration is manually disposed
+    after its CAS consumption but before its execution still runs that one execution - industry
+    once semantics, where the consumption, not the delivery, is the commitment.
 30. Isolate x inject: dependency declarations index, and declaration mediation (D13) compares,
     on the effective (realm-rewritten) store key - the same base provide, notify, and withdraw
     speak - so reactive dependents inside an isolated subtree classify normally; a default-realm
@@ -365,25 +369,63 @@ by the module).
 31. Registry release: disposing the declaration of a fiber that never ran a full unload -
     reactively drained, failed, or never satisfied - removes the fiber from the registry, so its
     owner subtree becomes collectable (T36).
-32. Realm reuse: the loader keys each isolation realm by its tree position (prefix, type, realm)
-    and reuses its derived context across reconciles; unchanged entries inside the realm do not
-    reload, and a realm is disposed only once truly drained after the whole reconcile lands (T39).
-33. Hook rollback: a Service.start()/stop() failure during provide removes the binding before
-    the failure propagates, leaving no orphan the caller could not dispose (T40).
+32. Realm reuse: the loader keys each isolation realm by its isolate-chain path (the sequence
+    of nested realms from the root, group prefixes excluded) and reuses its derived context across
+    reconciles; groups do not constitute isolation boundaries, a nested inner realm never merges
+    with a top-level one carrying the same label, unchanged entries inside the realm do not
+    reload, and a realm is disposed only once truly drained after the whole reconcile lands
+    (T39/T53).
+33. Hook rollback: a Service.start()/stop() failure during a first provide removes the binding
+    before the failure propagates, leaving no orphan the caller could not dispose; over a previous
+    binding, the failure restores that binding (token and owner intact) and best-effort restarts
+    the old service - the key never evaporates and dependents stay on the pre-overwrite stable
+    state (T40/T51).
 34. Interrupted async activation: a caller interrupted while waiting for pluginAsync loses the
     handle, so it joins the ambient scope - the context's own disposal unloads the fiber whatever
     state it landed in (T41).
 35. Format layer (cordis4j-loader, D28): reading preserves the `!!js` tag as an unevaluated
     JsExpr and unknown fields verbatim, and generates a missing id (8 hex digits) at read time;
     an insertion without an id appends to the root, with one it appends into the located group
-    (a missing or non-group target fails the apply); an override locates its row by id anywhere
-    in the tree - a present-but-mismatched name skips the patch, config replaces wholesale, map
-    fields merge by key, and a missing target warns without failing; a later patch in the same
-    layer locates what an earlier one inserted; a package without the `dsh` key declares
+    (a missing, non-group, or malformed target skips the patch with a warning); an override
+    locates its row by id anywhere in the tree - a present-but-mismatched name skips the patch,
+    config replaces wholesale, and a missing target warns without failing; a later patch in the
+    same layer locates what an earlier one inserted; a package without the `dsh` key declares
     nothing; the mapping turns `true` into the local realm `#<entryId>`, a label into the shared
     realm `@<label>` (the first table service wrapping outermost), drops disabled entries (a
     group's own flag included) from the mount while keeping their metadata, and rejects entries
     without ids (T42-T45).
+36. Realm/qualifier key space (D5): a realm label and a qualifier of the same text are one store
+    key - an isolated declaration rewrites to that key, an ambient binding carrying the same
+    qualifier text satisfies it, withdrawing that binding drains the dependent, and re-providing
+    re-activates it (T46).
+37. Declaration mediation base (D13): the comparison speaks effective keys computed from the
+    context the lookup resolves through, not the declaration's owner - a realm-declared fiber
+    reading the default key through the root is rejected, and vice versa (T47).
+38. Raced retirement: a declaration retired between the notifyBound selection and the activation
+    never runs its body - and an interrupted pluginAsync caller racing a context dispose still
+    receives the CordisException while the orphan fiber retires and unloads in the handler
+    itself (T48/T49).
+39. Dispose completion: a context dispose whose ambient phase throws still closes the executor
+    behind it (close failures aggregate as suppressed), and a loader realm's accounting lands
+    even when a component's teardown throws, so drained realms really discard (T50).
+40. Overwrite rollback: see boundary 33 - the previous binding is restored, never evaporated
+    (T51).
+41. Cycles: mutually cyclic declarations are never satisfied and simply stay INACTIVE, silently,
+    like upstream - nothing throws; the synchronous re-entry guard exists only for a self-cycle
+    (a body providing the very key its fiber depends on, which the selection itself prevents)
+    (T52).
+42. Loader realm keys and group inheritance (D28): the realm key is the isolate-chain path with
+    group prefixes excluded (boundary 32); a group's isolate and intercept tables propagate down
+    the prototype chain, nearer rows overriding the same service name; falsy isolation labels
+    (null, false, empty string) mount no realm, and non-string non-boolean labels fail fast
+    (T53/T54).
+43. Patch tables and targets (D28): an override's intercept/isolate tables replace the target's
+    wholesale (an absent table keeps the target's; unlike upstream, a null cannot clear the
+    field - Java records cannot express absence), extras keep per-key merging, and broken
+    insertion targets skip with a warning (T55).
+44. Flattened metadata keys (D28): EntryMeta is keyed by the flattened id (group prefixes
+    included), duplicate flattened ids fail fast, and those keys join a reconciled tree by id
+    end to end (T56).
 
 ---
 

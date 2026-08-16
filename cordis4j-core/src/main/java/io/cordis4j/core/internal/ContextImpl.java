@@ -537,6 +537,11 @@ public final class ContextImpl implements Context {
   }
 
   private ExecutorService executor() {
+    if (disposed) {
+      // Same contract as checkAlive, closing the theoretical window where a dispose racing a
+      // first spawn would resurrect an executor nobody will ever close again.
+      throw new IllegalStateException("Context #" + id + " is disposed");
+    }
     ExecutorService service = executor;
     if (service == null) {
       synchronized (this) {

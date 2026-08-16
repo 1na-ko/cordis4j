@@ -55,6 +55,9 @@ public final class Manifests {
 
   private static final ObjectMapper JSON = new ObjectMapper();
 
+  private static final java.util.logging.Logger LOG =
+      java.util.logging.Logger.getLogger(Manifests.class.getName());
+
   private Manifests() {}
 
   /**
@@ -69,7 +72,11 @@ public final class Manifests {
     Objects.requireNonNull(packageJson, "packageJson");
     Map<String, Object> root = readPackageJson(packageJson);
     Object declared = manifestSection(root, "bundle");
+    if (declared == null) {
+      return Optional.empty();
+    }
     if (!(declared instanceof Map<?, ?> section)) {
+      LOG.warning(() -> "dsh.bundle is not an object, ignored: " + packageJson);
       return Optional.empty();
     }
     Object patchField = section.get("patch");
@@ -92,7 +99,11 @@ public final class Manifests {
     Objects.requireNonNull(packageJson, "packageJson");
     Map<String, Object> root = readPackageJson(packageJson);
     Object declared = manifestSection(root, "profile");
+    if (declared == null) {
+      return Optional.empty();
+    }
     if (!(declared instanceof Map<?, ?> section)) {
+      LOG.warning(() -> "dsh.profile is not an object, ignored: " + packageJson);
       return Optional.empty();
     }
     Object bundlesField = section.get("bundles");

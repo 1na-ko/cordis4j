@@ -121,7 +121,7 @@ public final class Patches {
     List<CordisEntry> rebuilt = new ArrayList<>(tree.size());
     for (CordisEntry entry : tree) {
       if (entry.id().equals(patch.id())) {
-        if (patch.name() != null && !patch.name().equals(entry.name())) {
+        if (patch.name() != null && !patch.name().isBlank() && !patch.name().equals(entry.name())) {
           LOG.warning(
               () ->
                   "patch for '"

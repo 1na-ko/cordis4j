@@ -70,12 +70,12 @@ public final class CordisSpecs {
    */
   public record Mapping(List<ComponentSpec> specs, Map<String, EntryMeta> meta) {
 
-    /** Creates the mapping, copying both collections. */
+    /** Creates the mapping, copying both collections (metadata keeps entry order). */
     public Mapping {
       Objects.requireNonNull(specs, "specs");
       Objects.requireNonNull(meta, "meta");
       specs = List.copyOf(specs);
-      meta = Map.copyOf(meta);
+      meta = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(meta));
     }
   }
 

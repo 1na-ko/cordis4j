@@ -24,9 +24,12 @@ public sealed interface ComponentSpec {
    */
   record Entry(String id, Plugin component) implements ComponentSpec {
 
-    /** Validates the components of this entry. */
+    /** Validates the components of this entry, rejecting an empty id like ComponentEntry. */
     public Entry {
       Objects.requireNonNull(id, "id");
+      if (id.isEmpty()) {
+        throw new IllegalArgumentException("entry id must not be empty");
+      }
       Objects.requireNonNull(component, "component");
     }
   }

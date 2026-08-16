@@ -204,14 +204,19 @@ final class ServiceRegistry {
     if (chain.isEmpty()) {
       return null;
     }
-    Object merged = chain.get(0);
-    for (int i = 1; i < chain.size(); i++) {
-      Object nearer = chain.get(i);
-      if (merged instanceof InterceptMetadata outer && nearer instanceof InterceptMetadata inner) {
-        merged = outer.merge(inner);
-      } else {
-        return nearer; // mixed metadata kinds keep nearest-wins semantics
+    // Walk from the nearest end: the nearest InterceptMetadata accumulates merges root-ward and
+    // stops at the first non-mergeable binding inside it; a chain whose nearest binding is not
+    // InterceptMetadata returns that nearest binding (nearest wins, D23's monoid guard).
+    int nearest = chain.size() - 1;
+    Object merged = chain.get(nearest);
+    if (!(merged instanceof InterceptMetadata)) {
+      return merged;
+    }
+    for (int i = nearest - 1; i >= 0; i--) {
+      if (!(chain.get(i) instanceof InterceptMetadata outer)) {
+        break; // a foreign boundary closer to the root than the merge base ends the merge
       }
+      merged = outer.merge((InterceptMetadata) merged);
     }
     return merged;
   }
