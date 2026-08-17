@@ -5,23 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Fixed
-
-- Core: the two-argument (and three-argument) `inject` forms resolve their injected values under
-  the realm-rewritten key - a realm declaration satisfied by an ambient qualifier binding of the
-  same text now sees that binding inside the body instead of failing activation with a
-  `NoSuchServiceException` (dig round 1, T61). Design contract v2.10 extends boundary 36.
-- HMR: `HotReloadingLoader.dispose` completes the code retraction even when a component's
-  teardown throws - the uninstall loop now runs in a finally, so class loaders close and jar file
-  handles release while the aggregated `DisposeException` still propagates (dig round 2, T62).
-- Core/loader: an empty `ComponentSpec.Group` id is rejected like `Entry`'s (dig round 3, T63),
-  and the loader's include flattening enforces a 64-level depth limit, failing fast on cyclic
-  host resolver chains instead of overflowing the stack (dig round 4, T64). `CordisConfig`
-  documents the known parsing differences vs upstream js-yaml's JSON_SCHEMA and the host's
-  `JsExpr` sandboxing responsibility.
-
 ## [0.4.1] - 2026-08-17
 
 ### Fixed
@@ -64,10 +47,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   field types fail at the field (m-8).
 - Minor: JUL-forwarded log records carry the logger name; three-layer mixed intercept chains keep
   the nearest mergeable metadata (nearest-wins); `ComponentSpec.Entry` rejects empty ids;
-  `executor()` refuses a disposed context; `Mapping.meta` keeps entry order; the loader module
-  requires the core transitively; a patch's blank `name` counts as absent (upstream falsiness);
-  `ensureId` treats only null/empty as generative and warns on non-string ids; non-object `dsh`
-  bundle/profile sections warn instead of passing silently.
+  `executor()` refuses a disposed context; `Mapping.meta` keeps entry order; every ecosystem
+  module whose exported API speaks core types requires the core transitively; a patch's blank
+  `name` counts as absent (upstream falsiness); `ensureId` treats only null/empty as generative
+  and warns on non-string ids; non-object `dsh` bundle/profile sections warn instead of passing
+  silently.
+- Core: the two-argument (and three-argument) `inject` forms resolve their injected values under
+  the realm-rewritten key - a realm declaration satisfied by an ambient qualifier binding of the
+  same text now sees that binding inside the body instead of failing activation with a
+  `NoSuchServiceException` (defect-mining round 1, T61).
+- HMR: `HotReloadingLoader.dispose` completes the code retraction even when a component's
+  teardown throws - the uninstall loop now runs in a finally, so class loaders close and jar file
+  handles release while the aggregated `DisposeException` still propagates (defect-mining round
+  2, T62).
+- Core/loader: an empty `ComponentSpec.Group` id is rejected like `Entry`'s (defect-mining round
+  3, T63), and the loader's include flattening enforces a 64-level depth limit, failing fast on
+  cyclic host resolver chains instead of overflowing the stack (defect-mining round 4, T64);
+  `CordisConfig` documents the known parsing differences vs upstream js-yaml's JSON_SCHEMA and
+  the host's `JsExpr` sandboxing responsibility.
 
 ### Changed
 
@@ -79,9 +76,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cycle semantics documented as implemented (R2, T52): mutually cyclic declarations stay silently
   INACTIVE like upstream; `CyclicDependencyException` remains public API for the self-cycle
   re-entry guard only.
-- Design contract v2.9: D5's realm/qualifier key-space note, D23's realm-unrewritten interception
-  keys, boundary 29's once race window, boundary 32's isolate-chain realm keys, boundary 33's
-  restoration semantics, and new boundary semantics 36-44 (T46-T56).
+- Design contract v2.9, extended to v2.10: D5's realm/qualifier key-space note (with v2.10's
+  boundary 36 extension to the two-argument inject resolution base, T61), D23's realm-unrewritten
+  interception keys, boundary 29's once race window, boundary 32's isolate-chain realm keys,
+  boundary 33's restoration semantics, new boundary semantics 36-44 (T46-T56), and D21's
+  compile-time form boundary.
 
 ## [0.4.0] - 2026-08-16
 
