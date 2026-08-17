@@ -34,8 +34,11 @@ import java.util.Set;
  *   <li><b>Failure routing</b> (Section 4.3.4): an activation that raises reverts its own domain,
  *       records the failure on the fiber, and never retries; the failure does not propagate to
  *       sibling fibers (only to the direct caller of {@code plugin}).
- *   <li><b>Cycle rejection</b> (Progress theorem): activation revisiting a fiber already on the
- *       activation stack throws {@link CyclicDependencyException} to the triggering caller.
+ *   <li><b>Cycles</b> (Progress theorem): mutually cyclic declarations are never satisfied - both
+ *       fibers simply stay INACTIVE, silently, exactly like upstream. Activation revisiting its own
+ *       in-flight fiber on the same thread (a self-cycle: a body providing the very key its fiber
+ *       depends on) throws {@link CyclicDependencyException} to the triggering caller and is routed
+ *       to unload like any activation failure.
  * </ul>
  *
  * <p>Concurrency: registry state is guarded by {@link #lock}. User code - effect functions,
@@ -154,6 +157,9 @@ final class FiberRegistry {
         // Re-entering this fiber's own activation on the same thread is a dependency cycle;
         // a LOADING fiber seen from another thread is a racing activation, not a cycle.
         throw new CyclicDependencyException(describeCycle(fiber));
+      }
+      if (fiber.retired || fiber.failed) {
+        return; // raced retirement between selection and activation: stay down
       }
       if (fiber.state != FiberState.INACTIVE) {
         return; // an activation that already landed, or is landing on another thread, owns it

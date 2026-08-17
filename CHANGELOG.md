@@ -5,6 +5,83 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-08-17
+
+### Fixed
+
+- Spring: `@CordisService` beans behind AOP proxies (CGLIB or JDK) provide under their ultimate
+  target class's key instead of being silently dropped or unresolvable (C-1, T57).
+- Spring: a failing teardown no longer abandons the remaining withdrawals - failures aggregate
+  into one `DisposeException` (M-2, T57); a stop/start lifecycle cycle replays the provided
+  bindings instead of losing them (M-3, T57); an unconstructible `Context` bean logs one warning
+  and leaves the container alive (M-1, T58).
+- Core: a declaration retired between the notifyBound selection and the activation never runs its
+  body (M3, T48); an interrupted `pluginAsync` racing a context dispose still reports the
+  `CordisException` and retires the orphan fiber in place (M4, T49); a component teardown failure
+  still lands the loader's realm accounting - drained realms really discard and a reload of the
+  same realm gets a fresh derived context (M6, T50, including the missing domain threading that
+  made the accounting inert); a dispose whose ambient phase throws still closes the executor
+  (M7, T50).
+- Core: an overwrite whose start hook fails restores the previous binding (token and owner
+  intact) and best-effort restarts the old service - the key never evaporates and dependents do
+  not zombify (M8/R5, T51, T40).
+- Core: declaration mediation computes the realm-rewritten key from the context the lookup
+  resolves through, closing the D13 bypass across contexts (M2, T47).
+- Loader: realm keys are the isolate-chain path (groups excluded), so the same label under
+  different groups shares one realm while nested inner realms never merge with same-label
+  top-level ones (L-M1/M5/R8, T53); a group's isolate/intercept tables propagate down the
+  prototype chain with nearer rows overriding (L-M2, T54); falsy isolation labels mount no realm
+  and malformed labels fail fast (L-M6, T54); broken insertion targets skip with a warning and an
+  explicit empty `insert` still dispatches as an insertion (L-M4/R3, T55); an override's
+  intercept/isolate tables replace wholesale like upstream include, extras keep per-key merging
+  (L-M3/R4, T55); `EntryMeta` is keyed by the flattened id with duplicate detection and joins a
+  reconciled tree end to end (L-M7, T56).
+- LangChain4j: a declare racing a concurrent registry dispose retires in place instead of leaking
+  its fiber into the session (M-4, T59); retireAll aggregates failures and still retires every
+  declaration (M-5, T59); duplicate change notifications on wrapper disposal are gone and
+  duplicate tool specification names fail the activation (m-5, m-6).
+- Inject processor: inherited `@Inject` fields join the subclass injector (reachable ones wire,
+  unreachable ones are compile errors located on the field), matching the runtime form's
+  full-hierarchy scan (M-6/R7, T60); qualifier literals escape newlines/tabs/control characters
+  (m-7); Filer failures report through the Messager at the source element (m-1); inaccessible
+  field types fail at the field (m-8).
+- Minor: JUL-forwarded log records carry the logger name; three-layer mixed intercept chains keep
+  the nearest mergeable metadata (nearest-wins); `ComponentSpec.Entry` rejects empty ids;
+  `executor()` refuses a disposed context; `Mapping.meta` keeps entry order; every ecosystem
+  module whose exported API speaks core types requires the core transitively; a patch's blank
+  `name` counts as absent (upstream falsiness); `ensureId` treats only null/empty as generative
+  and warns on non-string ids; non-object `dsh` bundle/profile sections warn instead of passing
+  silently.
+- Core: the two-argument (and three-argument) `inject` forms resolve their injected values under
+  the realm-rewritten key - a realm declaration satisfied by an ambient qualifier binding of the
+  same text now sees that binding inside the body instead of failing activation with a
+  `NoSuchServiceException` (defect-mining round 1, T61).
+- HMR: `HotReloadingLoader.dispose` completes the code retraction even when a component's
+  teardown throws - the uninstall loop now runs in a finally, so class loaders close and jar file
+  handles release while the aggregated `DisposeException` still propagates (defect-mining round
+  2, T62).
+- Core/loader: an empty `ComponentSpec.Group` id is rejected like `Entry`'s (defect-mining round
+  3, T63), and the loader's include flattening enforces a 64-level depth limit, failing fast on
+  cyclic host resolver chains instead of overflowing the stack (defect-mining round 4, T64);
+  `CordisConfig` documents the known parsing differences vs upstream js-yaml's JSON_SCHEMA and
+  the host's `JsExpr` sandboxing responsibility.
+
+### Changed
+
+- Overwrite rollback restores the previous binding instead of removing the key (M8, R5) - the
+  dependents stay on the pre-overwrite stable state.
+- Loader patch semantics align with upstream include exactly: map fields replace wholesale (null
+  keeps the target's - Java records cannot express field absence) and missing insert targets
+  warn-and-skip (L-M3/R4, L-M4/R3).
+- Cycle semantics documented as implemented (R2, T52): mutually cyclic declarations stay silently
+  INACTIVE like upstream; `CyclicDependencyException` remains public API for the self-cycle
+  re-entry guard only.
+- Design contract v2.9, extended to v2.10: D5's realm/qualifier key-space note (with v2.10's
+  boundary 36 extension to the two-argument inject resolution base, T61), D23's realm-unrewritten
+  interception keys, boundary 29's once race window, boundary 32's isolate-chain realm keys,
+  boundary 33's restoration semantics, new boundary semantics 36-44 (T46-T56), and D21's
+  compile-time form boundary.
+
 ## [0.4.0] - 2026-08-16
 
 ### Added

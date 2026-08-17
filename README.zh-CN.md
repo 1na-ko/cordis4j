@@ -26,7 +26,7 @@ Disposable db = ctx.plugin(new DatabasePlugin());   // → cache 激活
 db.dispose();                                       // → dependents 先排空，provider 后撤销
 ```
 
-> 状态：v0.4.0（**孵化期**）。语义遵循论文
+> 状态：v0.4.1（**孵化期**）。语义遵循论文
 > [A Programming Paradigm for Spatiotemporal Composability](https://github.com/cordiverse/paper)
 > 第 3–5 节（Algorithm 1–6）的形式化模型；API 是 Java 化的重想（inspired-by），不是对
 > TypeScript 代码的逐行移植。冻结契约与决策日志见
@@ -115,7 +115,7 @@ mvn -pl cordis4j-demo exec:java
 ## 构建与质量门禁
 
 ```console
-mvn verify   # enforcer + spotless + 测试（T1-T45，共 188 个）+ jacoco（>= 85%）+ javadoc + 依赖分析
+mvn verify   # enforcer + spotless + 测试（T1-T64，共 222 个）+ jacoco（>= 85%）+ javadoc + 依赖分析
 ```
 
 ## 路线图

@@ -34,6 +34,16 @@ import org.yaml.snakeyaml.nodes.Tag;
  * {@code ensureId}, minus the write-back this module deliberately does not do): the parsed entry is
  * stable for as long as the host holds it, and hosts wanting stable reloads across re-reads should
  * give their entries explicit ids.
+ *
+ * <p><b>Known parsing differences vs upstream js-yaml's JSON_SCHEMA</b> (deliberate, by decision
+ * D28's fail-fast bias): SnakeYAML's SafeConstructor accepts merge keys ({@code <<}) and typed
+ * scalars (timestamps, and other tags upstream's JSON_SCHEMA would reject) instead of erroring or
+ * flattening them the way js-yaml does, and truthiness follows Java (only {@code Boolean} values)
+ * rather than js-yaml's wider falsy set. Reading stays safe-constructor throughout: no arbitrary
+ * type instantiation is possible. The {@code !!js} tag is <em>never evaluated here</em> - the host
+ * that interpolates a {@link JsExpr} through its {@code ExpressionEvaluator} takes responsibility
+ * for treating the expression text as untrusted input (an evaluation engine must sandbox or reject
+ * it, exactly like upstream's host-side {@code Function} evaluation).
  */
 public final class CordisConfig {
 
@@ -48,6 +58,9 @@ public final class CordisConfig {
   /** The full form of upstream's {@code !!js} YAML tag. */
   private static final Tag JS_TAG = new Tag("tag:yaml.org,2002:js");
 
+  private static final java.util.logging.Logger LOG =
+      java.util.logging.Logger.getLogger(CordisConfig.class.getName());
+
   private CordisConfig() {}
 
   /**
@@ -57,7 +70,8 @@ public final class CordisConfig {
    * @param file the configuration file
    * @return the parsed entries, in document order
    * @throws IllegalArgumentException if the extension is neither YAML nor JSON
-   * @throws CordisException if the file cannot be read or is not a list of entry rows
+   * @throws CordisException if the file cannot be read, is not a list of entry rows, or a row is
+   *     malformed
    * @throws NullPointerException if {@code file} is null
    */
   public static List<CordisEntry> read(Path file) {
@@ -124,10 +138,7 @@ public final class CordisConfig {
     if (!(nameField instanceof String name) || name.isBlank()) {
       throw new CordisException("each entry row requires a non-blank name field");
     }
-    String id =
-        fields.get("id") instanceof String existing && !existing.isBlank()
-            ? existing
-            : generatedId();
+    String id = ensureId(fields.get("id"));
     Object config = fields.get("config");
     boolean group = booleanField(fields.get("group"));
     if (group && config instanceof List<?> children) {
@@ -173,6 +184,21 @@ public final class CordisConfig {
       throw new CordisException("expected a mapping, found: " + value);
     }
     return new LinkedHashMap<>((Map<String, Object>) map);
+  }
+
+  /**
+   * Upstream's {@code if (!options.id)} falsiness: a missing or empty id generates one; a blank
+   * string (" ") or a non-string value stays verbatim (stringified), with a warning for the latter.
+   */
+  private static String ensureId(Object idField) {
+    if (idField == null || "".equals(idField)) {
+      return generatedId();
+    }
+    if (idField instanceof String existing) {
+      return existing;
+    }
+    LOG.warning(() -> "entry id is not a string, stringified verbatim: " + idField);
+    return String.valueOf(idField);
   }
 
   /**

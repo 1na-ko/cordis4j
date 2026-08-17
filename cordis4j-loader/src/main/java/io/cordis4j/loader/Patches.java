@@ -17,11 +17,15 @@ import java.util.logging.Logger;
  *
  * <ul>
  *   <li>an insertion without an {@code id} appends its rows to the root list; with an {@code id} it
- *       appends them to that group's children (the group must exist);
+ *       appends them to that group's children - a missing target row, a target that is not a group,
+ *       or a malformed child list skips the patch with a warning (one bad patch never takes down
+ *       the whole layered composition);
  *   <li>an override locates its row by {@code id} anywhere in the tree (group children included); a
  *       {@code name} that does not match the located row skips the patch with a warning; every
  *       other field replaces the target's wholesale - {@code config} replaces, it never
- *       deep-merges;
+ *       deep-merges, and {@code intercept}/{@code isolate} replace the whole table rather than
+ *       merging per key ({@code extras} still merges per key, upstream's {@code target[key] =
+ *       value});
  *   <li>a later patch in the same layer may locate a row an earlier patch inserted.
  * </ul>
  *
@@ -40,8 +44,7 @@ public final class Patches {
    * @param tree the current entry tree
    * @param patches the layer's patches, in order
    * @return a new tree with every patch applied (the input tree is untouched)
-   * @throws CordisException when an insertion targets a missing group, or a located row is not a
-   *     group
+   * @throws CordisException when a non-insertion patch has no {@code id} to locate a row
    * @throws NullPointerException if any argument or element is null
    */
   public static List<CordisEntry> apply(List<CordisEntry> tree, List<Patch> patches) {
@@ -50,11 +53,7 @@ public final class Patches {
     List<CordisEntry> current = new ArrayList<>(tree);
     for (Patch patch : patches) {
       Objects.requireNonNull(patch, "patch");
-      if (!patch.insert().isEmpty()) {
-        current = applyInsert(current, patch);
-      } else {
-        current = applyOverride(current, patch);
-      }
+      current = patch.insertion() ? applyInsert(current, patch) : applyOverride(current, patch);
     }
     return List.copyOf(current);
   }
@@ -65,11 +64,17 @@ public final class Patches {
       grown.addAll(patch.insert());
       return grown;
     }
-    List<CordisEntry> grown = insertIntoGroup(tree, patch);
-    if (grown == null) {
-      throw new CordisException("insertion target not found: " + patch.id());
+    try {
+      List<CordisEntry> grown = insertIntoGroup(tree, patch);
+      if (grown == null) {
+        LOG.warning(() -> "insertion target not found, patch skipped: " + patch.id());
+        return tree;
+      }
+      return grown;
+    } catch (CordisException broken) {
+      LOG.warning(() -> "insertion into '" + patch.id() + "' skipped: " + broken.getMessage());
+      return tree;
     }
-    return grown;
   }
 
   /** Inserts into the located group, recursing through nested ones; null when no row matches. */
@@ -107,12 +112,16 @@ public final class Patches {
     return overrideIn(tree, patch);
   }
 
-  private static List<CordisEntry> overrideIn(List<CordisEntry> tree, Patch patch) {
+  /**
+   * Overrides in the tree. The recursion reports whether the subtree matched; only the outermost
+   * level warns on a full miss, so a nested match never produces a spurious warning.
+   */
+  private static List<CordisEntry> overrideIn(
+      List<CordisEntry> tree, Patch patch, boolean[] matched) {
     List<CordisEntry> rebuilt = new ArrayList<>(tree.size());
-    boolean applied = false;
     for (CordisEntry entry : tree) {
       if (entry.id().equals(patch.id())) {
-        if (patch.name() != null && !patch.name().equals(entry.name())) {
+        if (patch.name() != null && !patch.name().isBlank() && !patch.name().equals(entry.name())) {
           LOG.warning(
               () ->
                   "patch for '"
@@ -123,22 +132,25 @@ public final class Patches {
                       + entry.name()
                       + ")");
           rebuilt.add(entry);
-          applied = true; // matched the row; the patch itself is a no-op
         } else {
           rebuilt.add(overrideEntry(entry, patch));
-          applied = true;
         }
+        matched[0] = true; // matched the row, whatever the patch itself did
       } else if (entry.group()) {
-        List<CordisEntry> children = overrideIn(groupChildren(entry), patch);
+        List<CordisEntry> children = overrideIn(groupChildren(entry), patch, matched);
         rebuilt.add(children.equals(groupChildren(entry)) ? entry : withConfig(entry, children));
-        if (!children.equals(groupChildren(entry))) {
-          applied = true;
-        }
       } else {
         rebuilt.add(entry);
       }
     }
-    if (!applied) {
+    return rebuilt;
+  }
+
+  /** Applies one override patch, warning once when no row anywhere matches its id. */
+  private static List<CordisEntry> overrideIn(List<CordisEntry> tree, Patch patch) {
+    boolean[] matched = {false};
+    List<CordisEntry> rebuilt = overrideIn(tree, patch, matched);
+    if (!matched[0]) {
       LOG.warning(() -> "patch target not found: " + patch.id());
     }
     return rebuilt;
@@ -147,14 +159,23 @@ public final class Patches {
   private static CordisEntry overrideEntry(CordisEntry entry, Patch patch) {
     return new CordisEntry(
         entry.id(),
-        patch.name() != null ? patch.name() : entry.name(),
+        entry.name(), // name is a match guard, never a rename (upstream semantics)
         patch.config() != null ? patch.config() : entry.config(),
         patch.group() != null ? patch.group() : entry.group(),
         patch.disabled() != null ? patch.disabled() : entry.disabled(),
         patch.inject() != null ? patch.inject() : entry.inject(),
-        mergeMaps(entry.intercept(), patch.intercept()),
-        mergeMaps(entry.isolate(), patch.isolate()),
+        replaceTable(entry.intercept(), patch.intercept()),
+        replaceTable(entry.isolate(), patch.isolate()),
         mergeMaps(entry.extras(), patch.extras()));
+  }
+
+  /**
+   * Upstream's field replacement for table fields: a present (non-empty) table replaces the
+   * target's wholesale; an absent one keeps it. Only extras keep per-key merging.
+   */
+  private static Map<String, Object> replaceTable(
+      Map<String, Object> base, Map<String, Object> replacement) {
+    return replacement.isEmpty() ? base : replacement;
   }
 
   private static Map<String, Object> mergeMaps(

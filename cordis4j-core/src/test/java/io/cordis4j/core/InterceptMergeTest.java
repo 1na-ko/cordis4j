@@ -52,6 +52,22 @@ class InterceptMergeTest {
   }
 
   @Test
+  @DisplayName("T18 三层 mixed 链：近端 InterceptMetadata 胜出，不再被中层 flat 元数据截断")
+  void threeLayerMixedChainKeepsTheNearestMergeable() {
+    Context root = Contexts.create();
+    Context tenant = root.fork();
+    Context session = tenant.fork();
+    root.intercept(ServiceKey.of(Billing.class), new Limits(100, null));
+    tenant.intercept(ServiceKey.of(Billing.class), "flat-in-the-middle");
+    session.intercept(ServiceKey.of(Billing.class), new Limits(null, 5));
+
+    Optional<Object> merged = session.interceptOf(ServiceKey.of(Billing.class));
+    assertTrue(merged.isPresent());
+    assertEquals(
+        new Limits(null, 5), merged.get(), "最近端的 InterceptMetadata 必须胜出：中层 flat 绑定只截断更远的合并，不遮蔽近端");
+  }
+
+  @Test
   @DisplayName("T18 无绑定时返回 empty；撤销后恢复为空")
   void emptyAndRevert() {
     Context ctx = Contexts.create();

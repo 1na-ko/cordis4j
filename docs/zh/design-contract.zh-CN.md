@@ -1,10 +1,12 @@
 # Cordis4j 设计契约（Design Contract）
 
 > 本文档是英文规范本 [../design-contract.md](../design-contract.md) 的中文译本（规范本语言：英文）。
-> 如有歧义，以英文版为准。最近同步：2026-08-16（v2.8，追加 D28）。
-> 状态：**v2.8 冻结**（对应 v0.4.0）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
+> 如有歧义，以英文版为准。最近同步：2026-08-17（v2.9，0.4.1 语义澄清批）。
+> 状态：**v2.10 冻结**（对应 v0.4.1+）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
 > v2.6 承载 D25/D26；v2.7 归属 D27（HMR 类隔离，随 0.3.0 发布）并修正头部滞后；v2.8 追加
-> D28（cordis4j-loader 的 cordis 配置格式桥接，随 0.4.0 发布）与边界语义 35。
+> D28（cordis4j-loader 的 cordis 配置格式桥接，随 0.4.0 发布）与边界语义 35；v2.9 为 0.4.1
+> 语义澄清批——边界语义 36-44，及对 D5 键空间说明、边界 29/32/33 与环措辞的修正；
+> v2.10（挖掘第 1 轮）扩展边界 36——双参 inject 的注入值按重写后的键解析。
 > 语义基线：cordis 论文《A Programming Paradigm for Spatiotemporal Composability》§3–§5（下文引用章节号即论文章节号）；
 > 参考实现：cordiverse/cordis 与 @deepseek-ai/cordis@4.0.1（MIT）。
 > Cordis4j 是论文语义的 **Java 重想**（inspired-by，非逐行移植）；与上游 TS API 的一切差异在 §5 显式声明。
@@ -46,7 +48,7 @@
 | D2 | 插件形态 | @FunctionalInterface Plugin.apply(Context) -> Disposable；apply 内的注册属于隐式效应域 | 对应论文 fiber.apply；Java 惯用形态 |
 | D3 | 事件模型 | 全同步分发；emit 先跑当前上下文，再沿父链到根（子→根）；监听器抛异常则传播且剩余跳过（D16 扩展分发语义） | 与上游一致；虚拟线程异步在 D15 |
 | D4 | 命名 | groupId/package io.cordis4j；artifactId cordis4j-core；JPMS 模块 io.cordis4j.core | 检索确认无冲突；冻结 |
-| D5 | 服务键 | ServiceKey<T> = (Class<T> type, String qualifier)；qualifier 是 realm 的一维投影；get(Foo.class) 是默认限定符糖 | 为论文 §6.2 多提供者与 loader realm 预留扩展点 |
+| D5 | 服务键 | ServiceKey<T> = (Class<T> type, String qualifier)；qualifier 是 realm 的一维投影；get(Foo.class) 是默认限定符糖 | 为论文 §6.2 多提供者与 loader realm 预留扩展点。因此 realm 名与同文本的 qualifier 是同一个 store key——隔离声明可被带同文本 qualifier 的 ambient 绑定满足（边界 36） |
 | D6 | 异常体系 | CordisException（基类）→ NoSuchServiceException（含键+查找路径）/ InactiveAccessException（声明校验，D13）/ DisposeException（suppressed 聚合）/ SupplyConflictException / CyclicDependencyException / DivertedException | 对齐上游 Algorithm 6 的两类访问失败与其余守卫信号 |
 | D7 | 生命周期 | 四态 fiber 状态机（INACTIVE/LOADING/ACTIVE/UNLOADING）；惯性表现为卸载等待落地（§7） | 论文 §4.2/§4.3.3 |
 | D8 | 线程（已被 D19 细化） | 核心同步起步；当前并发模型见 D19 | 先正确后并发 |
@@ -62,9 +64,9 @@
 | D18 | 声明式加载器 | LoaderConfig/ComponentEntry 按 id 键控 diff；组件实例即版本（换实例即重载）；调和事务性（失败恢复上一配置）；dispose 按装载逆序 | 论文 §5.2.1 / Algorithm 10 的配置级形态；record 相等性是 Java 原生配置 diff |
 | D19 | 线程 | 注册表状态由内部锁保护，获取方向单一（fiber 注册表 → 各上下文 store → 域）；用户代码在锁外执行；provide 触发的反应式通知在该 provide 的监视器释放后运行 | 无锁环；长激活与 teardown（可能 join 任务）从不持有注册表监视器 |
 | D20 | 撤退顺序 | 卸载 fiber 先撤出其供给的全部键（排空全部 dependents，含仍在 LOADING 者——惯性的链式卸载），再 LIFO 撤销自身效应；被排空的 dependent 在其 teardown 中仍可解析该依赖 | 论文 L-Leave/L-Unload 与 Theorem 63 的精确实现 |
-| D21 | 注解式注入 | 实例的 @Inject(qualifier) 字段由 Injects.injectFields(ctx, instance) 装配为一个 D11 声明：激活时以快照填充字段，撤退/退役时清空，再满足时重填；static/final/原始类型字段装配时立即失败；无注解字段为 no-op | 论文 §6.4：语言缺乏透明拦截原语时，认可注解 + 运行时反射中介依赖访问；核心保持零依赖（仅 JDK 反射） |
+| D21 | 注解式注入 | 实例的 @Inject(qualifier) 字段由 Injects.injectFields(ctx, instance) 装配为一个 D11 声明：激活时以快照填充字段，撤退/退役时清空，再满足时重填；static/final/原始类型字段装配时立即失败；无注解字段为 no-op | 论文 §6.4：语言缺乏透明拦截原语时，认可注解 + 运行时反射中介依赖访问；核心保持零依赖（仅 JDK 反射）。编译期处理器以零反射访问器生成同一声明并覆盖整个父类层次；与运行时形态的已声明边界：可达的继承字段（任意位置的 public、同包非 private）接线，不可达者在字段上报编译错误——反射可达 private 父字段而直接赋值不可 |
 | D22 | 事件模式 | on(type, listener, prepend) 插入本 context 既有监听之前；once 仅触发一次后自注销（过滤器生效、手动注销仍可）；第二个函数形监听表（fold）支撑 bail——第一个非 null 结果短路分发（含祖先）——与 waterfall——非 null 结果折叠为下一输入，null 保持累加值；emit 保持 consumer 表路径；冒泡方向保持子→根 | 上游 DispatchMode 的 bail/waterfall 与 prepend 选项及 once 在同步核心的类型化形态（上游对齐基准 docs/design/upstream-parity.md）；parallel/serial 属异步分发，不在范围内 |
-| D23 | Intercept 消费 | Context.intercepts(key) 沿树收集绑定元数据，根在前、最近在后（原始链，不合并）；interceptOf 保持该链上的 nearer-wins 幺半群；调用者以任意策略合并列表 | 上游 Service.resolveConfig 的 Java 形态——链收集即消费语义，合并策略留在调用方（上游对齐基准） |
+| D23 | Intercept 消费 | Context.intercepts(key) 沿树收集绑定元数据，根在前、最近在后（原始链，不合并）；interceptOf 保持该链上的 nearer-wins 幺半群；调用者以任意策略合并列表；intercept 键设计上不做 realm 重写——元数据寻址而非解析 | 上游 Service.resolveConfig 的 Java 形态——链收集即消费语义，合并策略留在调用方（上游对齐基准） |
 | D24 | 注册表视图 | Context.services() 快照本 context 提供的绑定（不含祖先），键为 realm 覆盖后的有效 storeKey；快照不可变；枚举遍历该快照 | 上游 registry values/entries 的类型化形态；解析后的整树视图留待 loader 组合 DSL（对齐 P4-4）需要时再做 |
 | D25 | 基础目录 | Context.baseUrl() 返回本 context 或祖先绑定的最近基础目录（无则空）；Context.withBaseUrl(path) 派生携带它的子 context（同 fork 惯例）；相对配置路径（include 引用）以它解析 | 上游 Context.baseUrl 的不可变派生惯用形态（fork/isolate） |
 | D26 | Loader 组合 | Loader.reconcileTree 把 ComponentSpec 树展平为逐条目装载上下文并经 D18 引擎调和：Group 以 groupId+':' 前缀其子条目 id；Isolate 把子条目装载进派生的 isolate(type, realm) 上下文（每节点一个域，其条目全部卸载后 dispose）；Include 经调用方提供的 resolver 内联另一配置源（相对基础目录解析，不限定文件格式）；展平重复 id 在任何变更前立即失败；失败回滚同 D18 | 上游 entry/group/isolate/tree 配置与 include 指令的类型化形态；平面 reconcile(LoaderConfig) 是同一引擎的单上下文特例 |
@@ -304,25 +306,51 @@
     而供给 fiber 卸载沿 fiber 级供给关系排空它（T24）。
 29. 分发重入：监听器、过滤器与 fold 函数在总线监视器之外运行（D19）；监听器可在分发中途
     注册、注销、再分发而不死锁；阻塞中的监听器不串行化无关的事件操作；竞争分发下 once
-    监听器恰好触发一次（T38）。
+    监听器恰好触发一次（T38）。once 监听器在 CAS 消费之后、执行之前被手动 dispose，该次
+    执行仍然进行——业界 once 语义以消费而非送达为承诺点。
 30. 隔离 × 注入：依赖声明以有效（realm 重写后）的 store key 索引，声明中介（D13）也在同一
     键基上比较——与 provide、notify、withdraw 所用的键一致——故隔离子树内的反应式依赖者
     正常分类；默认域绑定永不满足隔离声明（隔离对外层默认绑定不可见，与上游一致）（T37）。
 31. 注册表释放：对从未跑完完整卸载的 fiber（被反应式排空、失败、从未满足）dispose 其声明
     即将其移出注册表，其 owner 子树因此可回收（T36）。
-32. 域复用：loader 以树位置（前缀、类型、realm）为每个隔离域编键，跨 reconcile 复用其派生
-    上下文；域内未变化的条目不重载，且仅当整次调和落地后真正排空的域才被 dispose（T39）。
-33. 钩子回滚：provide 期间 Service.start()/stop() 抛出时先移除绑定再传播失败，不留调用者
-    无法清理的孤儿（T40）。
+32. 域复用：loader 以 Isolate 链路径（从根起的嵌套 realm 序列，group 前缀不计）为每个
+    隔离域编键，跨 reconcile 复用其派生上下文；group 不构成隔离边界，嵌套内层域不与同
+    label 顶层域合并，域内未变化的条目不重载，且仅当整次调和落地后真正排空的域才被
+    dispose（T39/T53）。
+33. 钩子回滚：首次 provide 期间 Service.start()/stop() 抛出时先移除绑定再传播失败，不留
+    调用者无法清理的孤儿；覆盖既有绑定时失败则恢复原绑定（token 与 owner 原样）并尽力
+    re-start 旧服务——键不蒸发，依赖者回到覆盖前的稳定态（T40/T51）。
 34. 被中断的异步激活：等待 pluginAsync 的调用者被中断后失去句柄，句柄随之进入 ambient——
     无论 fiber 落在何种状态，context 自身的销毁都会卸载它（T41）。
 35. 格式层（cordis4j-loader，D28）：读取保留 `!!js` 标签为不求值的 JsExpr、未知字段逐字保留，
     缺省 id 读取时生成（8 位十六进制）；无 id 的 insert 追加根列表，带 id 追加进定位 group
-    （目标缺失或非 group 使整个 apply 失败）；override 按 id 在树内任意位置定位——name 存在
-    但不匹配则跳过该 patch，config 整体替换，map 字段按键合并，目标缺失仅告警不失败；同层
+    （目标缺失、非 group 或畸形均告警跳过该 patch）；override 按 id 在树内任意位置定位
+    ——name 存在但不匹配则跳过该 patch，config 整体替换，目标缺失仅告警不失败；同层
     后续 patch 可定位先前 insert 的行；无 `dsh` 键的包不声明任何内容；映射把 `true` 变成本地域
     `#<entryId>`、label 变成共享域 `@<label>`（表首服务最外层），disabled 条目（含 group 自身
     开关沿链继承）退出装载但保留元数据，无 id 条目拒绝映射（T42-T45）。
+36. realm/qualifier 键空间（D5）：realm 名与同文本 qualifier 是同一个 store key——隔离声明
+    重写为该键，带同文本 qualifier 的 ambient 绑定满足它，撤回该绑定 drain 依赖者，再提供
+    再激活（T46）。双参（与三参）inject 形式的注入值按声明索引所用的同一重写键解析，
+    被满足的声明在 body 内必能看到其绑定（T61）。
+37. 声明中介基（D13）：比较所用有效键以取数解析经过的 context 计算，而非声明所在的
+    owner——realm 声明的 fiber 经 root 取 default 键被拒，反向亦然（T47）。
+38. 竞态退役：在 notifyBound 选定与激活之间被退役的声明永不执行 body；与 context dispose
+    竞态的被中断 pluginAsync 调用者仍收到 CordisException，孤儿 fiber 在处理分支内就地
+    退休并卸载（T48/T49）。
+39. dispose 完成性：ambient 阶段抛异常的 context dispose 仍关闭其 executor（关闭失败聚合为
+    suppressed），loader 域计数在组件 teardown 抛异常时照常落地，排空的域真正废弃（T50）。
+40. 覆盖回滚：见边界 33——旧绑定被恢复而非蒸发（T51）。
+41. 环依赖：互相环的声明永不满足、静默保持 INACTIVE，与上游一致——不抛任何异常；同步重入
+    守卫只对自环存在（body 提供自己 fiber 声明的键，且选择器自身已阻止该场景）（T52）。
+42. loader 域键与 group 继承（D28）：域键为不含 group 前缀的 Isolate 链路径（边界 32）；
+    group 的 isolate/intercept 表沿原型链下传，近端行覆盖同服务名；falsy 隔离 label
+    （null、false、空串）不产生域，非字符串非布尔 label fail-fast（T53/T54）。
+43. patch 表与目标（D28）：override 的 intercept/isolate 表整替目标的表（缺省保留目标的；
+    与上游不同，null 无法清空字段——Java record 无法表达字段存在性），extras 按键合并，
+    破损的 insert 目标告警跳过（T55）。
+44. 展平元数据键（D28）：EntryMeta 以展平 id（含 group 前缀）为键，重复展平 id fail-fast，
+    该键可端到端 join 已调和树（T56）。
 
 ---
 

@@ -5,12 +5,14 @@
 package io.cordis4j.loader;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.cordis4j.core.ComponentSpec;
 import io.cordis4j.core.Context;
+import io.cordis4j.core.Contexts;
 import io.cordis4j.core.CordisException;
 import io.cordis4j.core.Disposable;
 import io.cordis4j.core.Disposables;
@@ -171,8 +173,8 @@ class CordisSpecsTest {
     assertTrue(group.children().isEmpty(), "group 自身保留，禁用链剔除其全部子条目");
     assertEquals("e1", expectEntry(mapping.specs().get(1)).id(), "未禁用条目正常装载");
     assertEquals("topCfg", mapping.meta().get("off").config(), "顶层禁用条目元数据保留");
-    assertEquals("cfg1", mapping.meta().get("c1").config(), "被剔除子条目的元数据仍在（含配置树）");
-    assertEquals("bar", mapping.meta().get("c2").name(), "禁用组内条目元数据完整（无论自身开关）");
+    assertEquals("cfg1", mapping.meta().get("g1:c1").config(), "被剔除子条目的元数据仍在（含配置树，键为展平 id）");
+    assertEquals("bar", mapping.meta().get("g1:c2").name(), "禁用组内条目元数据完整（无论自身开关）");
   }
 
   @Test
@@ -285,5 +287,129 @@ class CordisSpecsTest {
         assertThrows(
             CordisException.class, () -> CordisSpecs.toSpecs(List.of(malformed), base, resolver()));
     assertTrue(broken.getMessage().contains("must be a list"), "group 的 config 必须是条目列表");
+  }
+
+  @Test
+  @DisplayName("T54 group 的 isolate 沿原型链继承：子条目无表用父 label，子条目 true 覆盖为本地域")
+  void inheritsGroupIsolationDownTheChain() {
+    CordisEntry plainChild = CordisEntry.of("c1", "foo", null);
+    CordisEntry overridingChild =
+        new CordisEntry("c2", "foo", null, false, false, null, null, Map.of("config", true), null);
+    CordisEntry group =
+        new CordisEntry(
+            "g",
+            "@group",
+            List.of(plainChild, overridingChild),
+            true,
+            false,
+            null,
+            null,
+            Map.of("config", "shared"),
+            null);
+
+    CordisSpecs.Mapping mapping = CordisSpecs.toSpecs(List.of(group), Path.of("."), resolver());
+
+    ComponentSpec.Group mounted =
+        assertInstanceOf(ComponentSpec.Group.class, mapping.specs().get(0));
+    // plain child: the inherited label wraps it into the shared realm
+    ComponentSpec.Isolate inherited = expectIsolate(mounted.children().get(0));
+    assertEquals("@shared", inherited.realm(), "无自身表的子条目必须继承 group 的 isolate label");
+    assertEquals(String.class, inherited.type());
+    // overriding child: its own true wins over the inherited label - a local realm
+    ComponentSpec.Isolate local = expectIsolate(mounted.children().get(1));
+    assertEquals("#c2", local.realm(), "子条目自身的 true 必须覆盖继承的 label（本地域）");
+  }
+
+  @Test
+  @DisplayName("T54 group 的 intercept 继承合并进 EntryMeta：子覆盖同键，异键并存")
+  void mergesGroupInterceptIntoEntryMeta() {
+    CordisEntry plainChild = CordisEntry.of("c1", "foo", null);
+    CordisEntry overridingChild =
+        new CordisEntry(
+            "c2",
+            "foo",
+            null,
+            false,
+            false,
+            null,
+            Map.of("logger", Map.of("level", 9)),
+            null,
+            null);
+    CordisEntry group =
+        new CordisEntry(
+            "g",
+            "@group",
+            List.of(plainChild, overridingChild),
+            true,
+            false,
+            null,
+            Map.of("logger", Map.of("level", 1), "cache", Map.of("ttl", 5)),
+            null,
+            null);
+
+    CordisSpecs.Mapping mapping = CordisSpecs.toSpecs(List.of(group), Path.of("."), resolver());
+
+    assertEquals(
+        Map.of("logger", Map.of("level", 1), "cache", Map.of("ttl", 5)),
+        mapping.meta().get("g:c1").intercept(),
+        "无自身表的子条目必须完整继承 group 的 intercept");
+    assertEquals(
+        Map.of("logger", Map.of("level", 9), "cache", Map.of("ttl", 5)),
+        mapping.meta().get("g:c2").intercept(),
+        "子条目同键覆盖父表、异键保留（原型链合并）");
+  }
+
+  @Test
+  @DisplayName("T54 isolate 表 falsy 值不产生域；非字符串非布尔值 fail-fast")
+  void skipsFalsyIsolationLabels() {
+    for (Object falsy : new Object[] {null, Boolean.FALSE, ""}) {
+      Map<String, Object> table = new LinkedHashMap<>();
+      table.put("config", falsy); // Map.of rejects nulls; the YAML reader can produce them
+      CordisEntry entry = new CordisEntry("a", "foo", null, false, false, null, null, table, null);
+      CordisSpecs.Mapping mapping = CordisSpecs.toSpecs(List.of(entry), Path.of("."), resolver());
+      ComponentSpec.Entry mounted = expectEntry(mapping.specs().get(0));
+      assertEquals("a", mounted.id(), "falsy label（" + falsy + "）不得产生任何 Isolate 包裹（直接是 Entry）");
+    }
+
+    CordisEntry malformed =
+        new CordisEntry("b", "foo", null, false, false, null, null, Map.of("config", 42), null);
+    CordisException broken =
+        assertThrows(
+            CordisException.class,
+            () -> CordisSpecs.toSpecs(List.of(malformed), Path.of("."), resolver()));
+    assertTrue(
+        broken.getMessage().contains("isolate label"),
+        "非字符串非布尔的 label 必须以 CordisException fail-fast");
+  }
+
+  @Test
+  @DisplayName("T56 meta 键为展平 id（group 前缀）；同层重复展平 id fail-fast；端到端 join")
+  void metaKeysAreFlattenedIds() throws Exception {
+    CordisEntry child = CordisEntry.of("c1", "foo", "cfg");
+    CordisEntry group = CordisEntry.group("g", List.of(child));
+
+    CordisSpecs.Mapping mapping = CordisSpecs.toSpecs(List.of(group), Path.of("."), resolver());
+    assertEquals("g:c1", mapping.meta().get("g:c1").id(), "meta 键与 EntryMeta.id 必须是展平 id");
+
+    CordisEntry duplicate = CordisEntry.of("c1", "bar", null);
+    CordisEntry ambiguous = CordisEntry.group("g", List.of(child, duplicate));
+    CordisException collision =
+        assertThrows(
+            CordisException.class,
+            () -> CordisSpecs.toSpecs(List.of(ambiguous), Path.of("."), resolver()));
+    assertTrue(
+        collision.getMessage().contains("duplicate flattened entry id: g:c1"),
+        "同 group 内重复 id 展平后冲突必须 fail-fast");
+
+    // End-to-end join: reconcile the mapped tree (the engine's flattened id for the mounted
+    // child is "g:c1"), then find metadata by exactly that id.
+    io.cordis4j.core.Context ctx = Contexts.create();
+    io.cordis4j.core.Loader loader = io.cordis4j.core.Loader.of(ctx);
+    CordisSpecs.Mapping joined = CordisSpecs.toSpecs(List.of(group), Path.of("."), resolver());
+    loader.reconcileTree(joined.specs());
+    assertTrue(joined.meta().containsKey("g:c1"), "展平 id 必须能直接查到 meta（端到端 join）");
+    assertFalse(joined.meta().containsKey("c1"), "裸 id 不得再作为 meta 键（旧语义）");
+    assertEquals("cfg", joined.meta().get("g:c1").config());
+    ctx.dispose();
   }
 }

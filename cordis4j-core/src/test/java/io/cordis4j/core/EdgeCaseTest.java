@@ -105,4 +105,19 @@ class EdgeCaseTest {
   private static final class Marker {}
 
   private record Ping() {}
+
+  @org.junit.jupiter.api.Test
+  @org.junit.jupiter.api.DisplayName("T63 空 id 的 ComponentSpec.Entry/Group 拒绝构造")
+  void emptyIdsAreRejected() {
+    assertThrows(
+        NullPointerException.class, () -> new ComponentSpec.Entry(null, ctx -> Disposables.none()));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new ComponentSpec.Entry("", ctx -> Disposables.none()),
+        "空 entry id 必须拒绝");
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new ComponentSpec.Group("", java.util.List.of()),
+        "空 group id 必须拒绝（前缀会产出畸形展平 id）");
+  }
 }

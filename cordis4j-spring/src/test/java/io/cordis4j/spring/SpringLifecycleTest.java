@@ -5,18 +5,25 @@
 package io.cordis4j.spring;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.cordis4j.core.Context;
 import io.cordis4j.core.Contexts;
 import io.cordis4j.core.Disposable;
 import io.cordis4j.core.Disposables;
+import io.cordis4j.core.NoSuchServiceException;
+import io.cordis4j.core.Service;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.context.support.GenericApplicationContext;
 
 /**
@@ -24,6 +31,10 @@ import org.springframework.context.support.GenericApplicationContext;
  * unloads every @CordisService fiber, repeated container cycles leak nothing (prototype beans
  * included), and a withdrawal on close drains dependents with the boundary semantics 13/14 of the
  * core contract.
+ *
+ * <p>T57: lifecycle edge paths - AOP-proxied beans still provide under their target class's key,
+ * one failing teardown does not abandon the remaining withdrawals, and a stop/start cycle replays
+ * the bindings instead of losing them.
  */
 class SpringLifecycleTest {
 
@@ -126,6 +137,106 @@ class SpringLifecycleTest {
           trace,
           "撤回必须卸载依赖 fiber，且 teardown 仍能解析被撤绑定");
       dependent.dispose(); // idempotent after the reactive unload
+    }
+  }
+
+  @CordisService
+  static class ProxiedClock extends Clock {
+    ProxiedClock() {
+      super("proxied");
+    }
+  }
+
+  @CordisService
+  static class FailingStopClock extends Clock implements Service {
+    final List<String> trace;
+
+    FailingStopClock(List<String> trace) {
+      super("failing");
+      this.trace = trace;
+    }
+
+    @Override
+    public void stop() {
+      trace.add("failing:stop");
+      throw new IllegalStateException("teardown failed");
+    }
+  }
+
+  @CordisService
+  static class GoodStopClock extends Clock implements Service {
+    final List<String> trace;
+
+    GoodStopClock(List<String> trace) {
+      super("good");
+      this.trace = trace;
+    }
+
+    @Override
+    public void stop() {
+      trace.add("good:stop");
+    }
+  }
+
+  @Test
+  @DisplayName("T57 AOP 代理 bean 仍按目标类的 key provide 且可解析到代理本体")
+  void proxiedBeanIsProvidedUnderItsTargetKey() {
+    Context root = Contexts.create();
+    Context session = root.fork();
+
+    try (GenericApplicationContext container = new GenericApplicationContext()) {
+      container.registerBean(Context.class, () -> session);
+      container.registerBean(CordisServiceRegistrar.class);
+      Object proxy = new ProxyFactory(new ProxiedClock()).getProxy(); // CGLIB: no interfaces
+      container.registerBean("proxiedClock", ProxiedClock.class, () -> (ProxiedClock) proxy);
+      container.refresh();
+
+      assertNotEquals(ProxiedClock.class, proxy.getClass(), "测试前提：注册的 bean 必须真是 CGLIB 代理");
+      assertSame(proxy, session.get(ProxiedClock.class), "按目标类取数必须解析到被代理的 bean 本体");
+      container.close();
+    }
+  }
+
+  @Test
+  @DisplayName("T57 一个 teardown 抛异常不得中断其余撤回：聚合后逐条逆序执行")
+  void withdrawFailureDoesNotAbandonTheRemainingBindings() {
+    List<String> trace = new CopyOnWriteArrayList<>();
+    try (GenericApplicationContext container = new GenericApplicationContext()) {
+      container.registerBean(Context.class, Contexts::create);
+      container.registerBean(CordisServiceRegistrar.class);
+      container.registerBean(GoodStopClock.class, () -> new GoodStopClock(trace));
+      container.registerBean(FailingStopClock.class, () -> new FailingStopClock(trace));
+      container.refresh();
+
+      // Spring's lifecycle processor logs and swallows the aggregated DisposeException; the
+      // observable contract is that both teardowns ran despite the first one failing.
+      container.close();
+      assertEquals(List.of("failing:stop", "good:stop"), trace, "撤回必须逆序逐条执行且不被先失败的一条打断");
+    }
+  }
+
+  @Test
+  @DisplayName("T57 stop→start 循环重放绑定：撤回后可恢复，isRunning 随之翻转")
+  void stopThenStartReplaysTheProvidedBindings() {
+    try (GenericApplicationContext container = new GenericApplicationContext()) {
+      container.registerBean(Context.class, Contexts::create);
+      container.registerBean(CordisServiceRegistrar.class);
+      container.registerBean(DefaultClock.class);
+      container.refresh();
+
+      Context ctx = container.getBean(Context.class);
+      CordisServiceRegistrar registrar = container.getBean(CordisServiceRegistrar.class);
+      assertTrue(registrar.isRunning(), "容器运行期间 registrar 必须处于 running 态");
+      assertSame("default", ctx.get(DefaultClock.class).name);
+
+      container.stop();
+      assertFalse(registrar.isRunning(), "stop 后、start 前 isRunning 必须为 false");
+      assertTrue(ctx.find(DefaultClock.class).isEmpty(), "stop 撤回绑定但不得 dispose context 本身");
+      assertThrows(NoSuchServiceException.class, () -> ctx.get(DefaultClock.class));
+
+      container.start();
+      assertTrue(registrar.isRunning(), "start 重放后 isRunning 必须回到 true");
+      assertSame("default", ctx.get(DefaultClock.class).name, "start 必须重放 provide 的绑定");
     }
   }
 }

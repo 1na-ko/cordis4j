@@ -30,6 +30,9 @@ import java.util.Objects;
  */
 public final class Loader implements Disposable {
 
+  /** Guards against cyclic or pathological include chains during flattening. */
+  private static final int INCLUDE_DEPTH_LIMIT = 64;
+
   /** One running entry: what was loaded, into which context, and its isolation realm (if any). */
   private record Loaded(ComponentEntry entry, Context loadContext, IsolatedDomain domain) {}
 
@@ -37,9 +40,12 @@ public final class Loader implements Disposable {
    * An isolation realm created by a composition: its derived context and how many of its entries
    * are currently loaded. The derived context is disposed once no entry of the realm remains.
    *
-   * <p>Each realm is keyed by its position in the composition tree (prefix, type, realm label) and
-   * reused across reconciles, so an unchanged subtree keeps its derived context - and with it its
-   * running components - instead of reloading on every reconcile.
+   * <p>Each realm is keyed by its isolate-chain path - the sequence of nested realms from the root,
+   * group prefixes excluded - and reused across reconciles, so an unchanged subtree keeps its
+   * derived context (and with it its running components) instead of reloading on every reconcile.
+   * Groups do not constitute isolation boundaries: the same label under different groups of one
+   * root is one shared realm (upstream's GlobalRealm), while a nested inner realm is always
+   * distinct from a top-level one carrying the same label.
    */
   private static final class IsolatedDomain {
     final String key;
@@ -137,7 +143,7 @@ public final class Loader implements Disposable {
     }
     List<IsolatedDomain> createdDomains = new ArrayList<>();
     List<Flat> withDomains = new ArrayList<>();
-    flattenToFlats(specs, ctx, "", baseUrl, withDomains, createdDomains);
+    flattenToFlats(specs, ctx, "", "", baseUrl, null, 0, withDomains, createdDomains);
     Map<String, Flat> desired = new LinkedHashMap<>();
     try {
       for (Flat flat : withDomains) {
@@ -258,9 +264,16 @@ public final class Loader implements Disposable {
   private void unload(String id, List<IsolatedDomain> pendingDisposals) {
     Disposable handle = handles.remove(id);
     Loaded loaded = running.remove(id);
+    Throwable pending = null;
     if (handle != null) {
-      handle.dispose();
+      try {
+        handle.dispose();
+      } catch (RuntimeException | Error failure) {
+        pending = failure;
+      }
     }
+    // The realm accounting must land even when the component's teardown threw, or the count
+    // drifts upward forever and the drained realm (with its derived context) never disposes.
     if (loaded != null && loaded.domain() != null) {
       loaded.domain().active--;
       if (loaded.domain().active == 0) {
@@ -270,6 +283,12 @@ public final class Loader implements Disposable {
           discardDomain(loaded.domain());
         }
       }
+    }
+    if (pending != null) {
+      if (pending instanceof RuntimeException runtime) {
+        throw runtime;
+      }
+      throw (Error) pending; // the component's teardown failure still propagates
     }
   }
 
@@ -293,32 +312,54 @@ public final class Loader implements Disposable {
       List<ComponentSpec> specs,
       Context loadContext,
       String prefix,
+      String domainPath,
       Path baseUrl,
+      IsolatedDomain domain,
+      int includeDepth,
       List<Flat> out,
       List<IsolatedDomain> createdDomains) {
+    if (includeDepth > INCLUDE_DEPTH_LIMIT) {
+      // A host resolver that keeps returning includes (cyclic or chained) would otherwise
+      // recurse until the stack overflows; fail fast with a diagnosable exception instead.
+      throw new CordisException("include nesting exceeds " + INCLUDE_DEPTH_LIMIT + " levels");
+    }
     for (ComponentSpec spec : specs) {
       switch (spec) {
         case ComponentSpec.Entry entry ->
-            out.add(new Flat(prefix + entry.id(), entry.component(), loadContext, null));
+            out.add(new Flat(prefix + entry.id(), entry.component(), loadContext, domain));
         case ComponentSpec.Group group ->
             flattenToFlats(
                 group.children(),
                 loadContext,
                 prefix + group.id() + ":",
+                domainPath,
                 baseUrl,
+                domain,
+                includeDepth,
                 out,
                 createdDomains);
         case ComponentSpec.Isolate isolate -> {
-          // Two isolate nodes with the same position and label share one realm by declaration;
-          // the same position across reconciles keeps it, so unchanged entries do not reload.
-          String key = prefix + isolate.type().getName() + '/' + isolate.realm();
-          IsolatedDomain domain = domains.get(key);
-          if (domain == null) {
-            domain = new IsolatedDomain(key, loadContext.isolate(isolate.type(), isolate.realm()));
-            domains.put(key, domain);
-            createdDomains.add(domain);
+          // Two isolate nodes share one realm when their full isolate-chain paths are equal:
+          // groups do not enter the path (same label under different groups of one root is one
+          // shared realm), while every enclosing realm does (a nested inner realm is distinct
+          // from a top-level one with the same label).
+          String key = domainPath + isolate.type().getName() + '/' + isolate.realm() + ':';
+          IsolatedDomain realm = domains.get(key);
+          if (realm == null) {
+            realm = new IsolatedDomain(key, loadContext.isolate(isolate.type(), isolate.realm()));
+            domains.put(key, realm);
+            createdDomains.add(realm);
           }
-          flattenToFlats(isolate.children(), domain.derived, prefix, baseUrl, out, createdDomains);
+          flattenToFlats(
+              isolate.children(),
+              realm.derived,
+              prefix,
+              key,
+              baseUrl,
+              realm,
+              includeDepth,
+              out,
+              createdDomains);
         }
         case ComponentSpec.Include include -> {
           Path absolute = baseUrl.resolve(include.file());
@@ -326,7 +367,10 @@ public final class Loader implements Disposable {
               include.resolver().apply(absolute),
               loadContext,
               prefix,
+              domainPath,
               baseUrl,
+              domain,
+              includeDepth + 1,
               out,
               createdDomains);
         }

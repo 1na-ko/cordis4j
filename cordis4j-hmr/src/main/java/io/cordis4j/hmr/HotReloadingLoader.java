@@ -265,9 +265,14 @@ public final class HotReloadingLoader implements Disposable {
       ids = new ArrayList<>(sources.keySet());
       sources.clear();
     }
-    loader.dispose(); // unloads every fiber it manages
-    for (String id : ids) {
-      registry.uninstall(id);
+    try {
+      loader.dispose(); // unloads every fiber it manages
+    } finally {
+      for (String id : ids) {
+        // Class loaders close (releasing the jars' file handles) even when a component's
+        // teardown threw: the failure propagates, but the code retraction still completes.
+        registry.uninstall(id);
+      }
     }
   }
 

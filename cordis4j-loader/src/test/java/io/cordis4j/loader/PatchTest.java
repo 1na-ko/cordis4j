@@ -20,6 +20,11 @@ import org.junit.jupiter.api.Test;
  * or into a located group, overrides locate rows by id anywhere in the tree, a name mismatch skips
  * the patch, {@code config} replaces wholesale, and a later patch in the same layer sees what an
  * earlier one inserted.
+ *
+ * <p>T55: broken insertion targets (missing row, non-group row, malformed children) skip the patch
+ * with a warning instead of throwing, an explicit empty {@code insert} list still dispatches as an
+ * insertion, and an override's {@code intercept}/{@code isolate} tables replace the target's
+ * wholesale (only {@code extras} keep per-key merging) - matching upstream include exactly.
  */
 class PatchTest {
 
@@ -30,11 +35,11 @@ class PatchTest {
   }
 
   private static Patch insertInto(String groupId, CordisEntry... rows) {
-    return new Patch(groupId, null, List.of(rows), null, null, null, null, null, null, null);
+    return new Patch(groupId, null, true, List.of(rows), null, null, null, null, null, null, null);
   }
 
   private static Patch overrideWith(String id, String name, Object config) {
-    return new Patch(id, name, null, config, null, null, null, null, null, null);
+    return new Patch(id, name, false, null, config, null, null, null, null, null, null);
   }
 
   @Test
@@ -71,25 +76,31 @@ class PatchTest {
   }
 
   @Test
-  @DisplayName("T43 insert 目标不存在或目标不是 group 均报错")
-  void rejectsBrokenInsertionTargets() {
-    CordisException missing =
-        assertThrows(
-            CordisException.class,
-            () ->
-                Patches.apply(
-                    List.of(), List.of(insertInto("nowhere", CordisEntry.of("x", "y", null)))));
-    assertTrue(missing.getMessage().contains("not found"), "缺失目标必须报错");
+  @DisplayName("T55 insert 目标缺失或目标不是 group：告警跳过，树不变（不再抛异常）")
+  void skipsBrokenInsertionTargets() {
+    List<CordisEntry> missingResult =
+        Patches.apply(List.of(), List.of(insertInto("nowhere", CordisEntry.of("x", "y", null))));
+    assertEquals(List.of(), missingResult, "缺失目标必须告警跳过，树保持原样");
 
     CordisEntry notAGroup = CordisEntry.of("plain", "foo", null);
-    CordisException wrongKind =
-        assertThrows(
-            CordisException.class,
-            () ->
-                Patches.apply(
-                    List.of(notAGroup),
-                    List.of(insertInto("plain", CordisEntry.of("x", "y", null)))));
-    assertTrue(wrongKind.getMessage().contains("not a group"), "目标必须是 group");
+    List<CordisEntry> wrongKind =
+        Patches.apply(
+            List.of(notAGroup), List.of(insertInto("plain", CordisEntry.of("x", "y", null))));
+    assertEquals(List.of(notAGroup), wrongKind, "非 group 目标必须告警跳过，树不变");
+  }
+
+  @Test
+  @DisplayName("T55 空 insert 列表仍走 insert 分派：目标存在不改内容，目标缺失跳过")
+  void emptyInsertListStillDispatchesAsInsertion() {
+    CordisEntry leaf = CordisEntry.of("c", "foo", null);
+    CordisEntry group = CordisEntry.group("g", List.of(leaf));
+    Patch emptyInsert = insertInto("g");
+
+    List<CordisEntry> patched = Patches.apply(List.of(group), List.of(emptyInsert));
+    assertEquals(List.of(group), patched, "空 insert 命中存在的 group 时不改内容");
+
+    List<CordisEntry> skipped = Patches.apply(List.of(group), List.of(insertInto("ghost")));
+    assertEquals(List.of(group), skipped, "空 insert 目标缺失时告警跳过");
   }
 
   @Test
@@ -155,8 +166,8 @@ class PatchTest {
   }
 
   @Test
-  @DisplayName("T43 覆盖 isolate/intercept 与 extras：按键合并，后入覆盖")
-  void mergesMapsOnOverride() {
+  @DisplayName("T55 覆盖的 intercept/isolate 整表替换（keep 消失）；extras 仍按键覆盖")
+  void replacesTablesWholesaleOnOverride() {
     CordisEntry target =
         new CordisEntry(
             "a",
@@ -172,6 +183,7 @@ class PatchTest {
         new Patch(
             "a",
             null,
+            false,
             null,
             null,
             null,
@@ -184,14 +196,14 @@ class PatchTest {
     List<CordisEntry> patched = Patches.apply(List.of(target), List.of(patch));
 
     CordisEntry result = patched.get(0);
-    assertEquals(Map.of("cache", "new", "keep", "yes"), result.intercept(), "同键覆盖、异键保留");
-    assertEquals(Map.of("config", true, "logger", "L"), result.isolate(), "isolate 表按键合并");
-    assertEquals(Map.of("extra1", 1, "extra2", 2), result.extras());
+    assertEquals(Map.of("cache", "new"), result.intercept(), "intercept 整表替换：目标的 keep 必须消失");
+    assertEquals(Map.of("logger", "L"), result.isolate(), "isolate 整表替换：目标的 config 必须消失");
+    assertEquals(Map.of("extra1", 1, "extra2", 2), result.extras(), "extras 仍按键覆盖合并");
     assertTrue(result.disabled(), "标量字段按 patch 覆盖");
   }
 
   @Test
-  @DisplayName("T43 无 insert 且无 id 的 patch 报错；group 子列表畸形在应用时报错")
+  @DisplayName("T43 无 insert 且无 id 的 patch 报错；override 遇畸形 group 子列表报错")
   void rejectsDegeneratePatches() {
     CordisException noTarget =
         assertThrows(
@@ -200,7 +212,8 @@ class PatchTest {
                 Patches.apply(
                     List.of(),
                     List.of(
-                        new Patch(null, null, null, null, null, null, null, null, null, null))));
+                        new Patch(
+                            null, null, false, null, null, null, null, null, null, null, null))));
     assertTrue(noTarget.getMessage().contains("requires an id"), "覆盖型 patch 必须有 id");
 
     CordisEntry malformedGroup =
@@ -208,10 +221,7 @@ class PatchTest {
     CordisException notAList =
         assertThrows(
             CordisException.class,
-            () ->
-                Patches.apply(
-                    List.of(malformedGroup),
-                    List.of(insertInto("g", CordisEntry.of("x", "y", null)))));
+            () -> Patches.apply(List.of(malformedGroup), List.of(Patch.override("any", "v"))));
     assertTrue(notAList.getMessage().contains("must be a list"), "group 的 config 必须是条目列表");
   }
 

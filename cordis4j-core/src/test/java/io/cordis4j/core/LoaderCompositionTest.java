@@ -5,6 +5,7 @@
 package io.cordis4j.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -19,6 +20,11 @@ import org.junit.jupiter.api.Test;
  * entry/group/isolate/tree configuration): groups prefix their children, isolation realms load into
  * derived contexts, includes inline another source against the base directory, and the flattened
  * set reconciles transactionally through the D18 engine.
+ *
+ * <p>T39: realm reuse across reconciles. T53: the realm key is the isolate-chain path - groups do
+ * not constitute isolation boundaries (the same label under different groups of one root is one
+ * shared realm), while a nested inner realm never merges with a top-level one carrying the same
+ * label.
  */
 class LoaderCompositionTest {
 
@@ -40,6 +46,9 @@ class LoaderCompositionTest {
       throw new RuntimeException("boom");
     }
   }
+
+  /** Marker service type for nested-isolate scenarios. */
+  static class Clock {}
 
   @Test
   @DisplayName("T33 group 前缀展平子条目 id（':' 分隔）；顶层条目不变")
@@ -210,5 +219,112 @@ class LoaderCompositionTest {
                         })))));
     assertEquals(2, activations.get(), "仅新增兄弟条目不得重载同 realm 内的既有条目");
     assertEquals(1, siblingLoads.get(), "新增条目必须装载");
+  }
+
+  @Test
+  @DisplayName("T53 不同 group 内同 label 的 isolate 共享一个域（group 不构成隔离边界）")
+  void sameLabelUnderDifferentGroupsSharesOneRealm() {
+    Context ctx = Contexts.create();
+    Loader loader = Loader.of(ctx);
+    java.util.concurrent.atomic.AtomicReference<String> seen =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    ServiceKey<String> key = ServiceKey.of(String.class, "db");
+    List<ComponentSpec> tree =
+        List.of(
+            new ComponentSpec.Group(
+                "g1",
+                List.of(
+                    new ComponentSpec.Isolate(
+                        String.class,
+                        "shared",
+                        List.of(
+                            new ComponentSpec.Entry(
+                                "p",
+                                c -> {
+                                  c.provide(key, "from-g1");
+                                  return Disposables.none();
+                                }))))),
+            new ComponentSpec.Group(
+                "g2",
+                List.of(
+                    new ComponentSpec.Isolate(
+                        String.class,
+                        "shared",
+                        List.of(
+                            new ComponentSpec.Entry(
+                                "d",
+                                c -> {
+                                  seen.set(c.find(key).orElse(null));
+                                  return Disposables.none();
+                                }))))));
+
+    loader.reconcileTree(tree);
+
+    assertEquals(
+        "from-g1", seen.get(), "同根下同 label 的 isolate 必须共享域：g2 的条目必须看到 g1 域内提供的绑定（GlobalRealm）");
+  }
+
+  @Test
+  @DisplayName("T53 嵌套内层域不与同 label 顶层域合并（域键含完整 Isolate 链）")
+  void nestedRealmNeverMergesWithTopLevelSameLabel() {
+    Context ctx = Contexts.create();
+    Loader loader = Loader.of(ctx);
+    java.util.concurrent.atomic.AtomicBoolean leaked =
+        new java.util.concurrent.atomic.AtomicBoolean();
+    ServiceKey<String> key = ServiceKey.of(String.class, "svc");
+    List<ComponentSpec> tree =
+        List.of(
+            new ComponentSpec.Isolate(
+                String.class,
+                "outer",
+                List.of(
+                    new ComponentSpec.Isolate(
+                        Clock.class,
+                        "L",
+                        List.of(
+                            new ComponentSpec.Entry(
+                                "nested",
+                                c -> {
+                                  c.provide(key, "nested-value");
+                                  return Disposables.none();
+                                }))))),
+            new ComponentSpec.Isolate(
+                Clock.class,
+                "L",
+                List.of(
+                    new ComponentSpec.Entry(
+                        "top",
+                        c -> {
+                          leaked.set(c.find(key).isPresent());
+                          return Disposables.none();
+                        }))));
+
+    loader.reconcileTree(tree);
+
+    assertFalse(leaked.get(), "嵌套内层域的键必须包含外层链，不得与同 label 的顶层域合并（顶层看不到嵌套域内的绑定）");
+  }
+
+  @Test
+  @DisplayName("T64 循环 include 的解析器：深度上限 fail-fast，不再栈溢出")
+  void cyclicIncludesFailFastAtTheDepthLimit() {
+    Context ctx = Contexts.create();
+    Loader loader = Loader.of(ctx);
+    java.util.List<ComponentSpec> cyclic = new java.util.ArrayList<>();
+    cyclic.add(
+        new ComponentSpec.Include(
+            Path.of("self"),
+            file -> {
+              cyclic.clear();
+              cyclic.add(new ComponentSpec.Include(Path.of("self"), unused -> cyclic));
+              return cyclic;
+            }));
+    CordisException failure =
+        assertThrows(
+            CordisException.class,
+            () -> loader.reconcileTree(cyclic),
+            "宿主解析器返回自引用 include 链时必须以 CordisException fail-fast");
+    assertTrue(
+        failure.getMessage().contains("include nesting"),
+        "错误信息必须指向 include 深度：" + failure.getMessage());
   }
 }

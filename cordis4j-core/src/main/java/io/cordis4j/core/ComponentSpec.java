@@ -24,9 +24,12 @@ public sealed interface ComponentSpec {
    */
   record Entry(String id, Plugin component) implements ComponentSpec {
 
-    /** Validates the components of this entry. */
+    /** Validates the components of this entry, rejecting an empty id like ComponentEntry. */
     public Entry {
       Objects.requireNonNull(id, "id");
+      if (id.isEmpty()) {
+        throw new IllegalArgumentException("entry id must not be empty");
+      }
       Objects.requireNonNull(component, "component");
     }
   }
@@ -40,9 +43,12 @@ public sealed interface ComponentSpec {
    */
   record Group(String id, List<ComponentSpec> children) implements ComponentSpec {
 
-    /** Validates the components of this group. */
+    /** Validates the components of this group, rejecting an empty id like Entry. */
     public Group {
       Objects.requireNonNull(id, "id");
+      if (id.isEmpty()) {
+        throw new IllegalArgumentException("group id must not be empty");
+      }
       Objects.requireNonNull(children, "children");
       children = List.copyOf(children);
     }

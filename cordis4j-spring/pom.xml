@@ -37,6 +37,18 @@
       <version>${spring.version}</version>
     </dependency>
     <dependency>
+      <!-- AnnotatedElementUtils (merged annotation lookup on the proxied target class). -->
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-core</artifactId>
+      <version>${spring.version}</version>
+    </dependency>
+    <dependency>
+      <!-- AopProxyUtils (seeing through CGLIB/JDK proxies to the target class). -->
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-aop</artifactId>
+      <version>${spring.version}</version>
+    </dependency>
+    <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-api</artifactId>
       <version>${junit.version}</version>

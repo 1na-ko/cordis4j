@@ -4,6 +4,7 @@
  */
 package io.cordis4j.inject.processor;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -222,5 +223,230 @@ class InjectProcessorTest {
                 + "  void method() {}\n"
                 + "}\n");
     assertFalse(misused.success(), "注解误用必须失败（javac 的 @Target 检查兜底）");
+  }
+
+  @Test
+  @DisplayName("T60 父类 @Inject 字段进子类 injector：protected 继承字段一并填充")
+  void inheritedFieldsJoinTheSubclassInjector() throws Exception {
+    Compilation compilation =
+        compile(
+            List.of(
+                new Source("sample.Database", DATABASE),
+                new Source(
+                    "sample.Base",
+                    "package sample;\n"
+                        + "public class Base {\n"
+                        + "  @io.cordis4j.core.Inject\n"
+                        + "  protected sample.Database database;\n"
+                        + "}\n"),
+                new Source(
+                    "sample.Child",
+                    "package sample;\n"
+                        + "public class Child extends Base {\n"
+                        + "  @io.cordis4j.core.Inject\n"
+                        + "  sample.Database replica;\n"
+                        + "}\n")));
+    assertTrue(compilation.success(), () -> compilation.diagnostics());
+    assertTrue(
+        Files.exists(compilation.output().resolve("sample/ChildCordisInjector.class")),
+        "子类必须生成 injector");
+    assertTrue(
+        Files.exists(compilation.output().resolve("sample/BaseCordisInjector.class")),
+        "父类自身的 injector 照常生成");
+
+    try (URLClassLoader loader =
+        new URLClassLoader(
+            new URL[] {compilation.output().toUri().toURL()}, getClass().getClassLoader())) {
+      Class<?> childClass = loader.loadClass("sample.Child");
+      Object child = childClass.getDeclaredConstructor().newInstance();
+      Class<?> injectorClass = loader.loadClass("sample.ChildCordisInjector");
+      Method injectFields = injectorClass.getMethod("injectFields", Context.class, childClass);
+      Field inherited = loader.loadClass("sample.Base").getDeclaredField("database");
+      inherited.setAccessible(true); // protected on the superclass
+      Field own = childClass.getDeclaredField("replica"); // package-private on the child
+      own.setAccessible(true);
+
+      Context ctx = Contexts.create();
+      Disposable declaration = (Disposable) injectFields.invoke(null, ctx, child);
+      assertNull(inherited.get(child), "继承字段初始必须为 null");
+      assertNull(own.get(child));
+
+      Class<?> databaseClass = loader.loadClass("sample.Database");
+      Object database = databaseClass.getConstructor(String.class).newInstance("jdbc:main");
+      Disposable provider =
+          ctx.plugin(
+              c -> {
+                c.provide(database);
+                return io.cordis4j.core.Disposables.none();
+              });
+      Object inheritedValue = inherited.get(child);
+      assertTrue(databaseClass.isInstance(inheritedValue), "继承的父类字段必须一并填充");
+      assertEquals("jdbc:main", databaseClass.getMethod("url").invoke(inheritedValue));
+      assertNotNull(own.get(child), "子类自身字段照常填充");
+
+      provider.dispose();
+      assertNull(inherited.get(child), "撤回后继承字段必须清空");
+      assertNull(own.get(child));
+      declaration.dispose();
+    }
+  }
+
+  @Test
+  @DisplayName("T60 不可达的父类 @Inject 字段（private）在编译期报错且定位到该字段")
+  void unreachableInheritedFieldFailsCompilation() throws Exception {
+    // Round one compiles Base WITHOUT the processor, so the private annotated field survives
+    // into a class file; round two compiles Child WITH the processor against it.
+    Path baseSrc = dir.resolve("base-" + System.nanoTime());
+    Path baseFile = baseSrc.resolve("sample/Base.java");
+    Files.createDirectories(baseFile.getParent());
+    Files.writeString(
+        baseFile,
+        "package sample;\n"
+            + "public class Base {\n"
+            + "  @io.cordis4j.core.Inject\n"
+            + "  private sample.Database database;\n"
+            + "}\n",
+        StandardCharsets.UTF_8);
+    Path databaseFile = baseSrc.resolve("sample/Database.java");
+    Files.writeString(databaseFile, DATABASE, StandardCharsets.UTF_8);
+    Path baseOut = Files.createDirectories(dir.resolve("baseout-" + System.nanoTime()));
+    JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+    int base =
+        compiler.run(
+            null,
+            null,
+            null,
+            "-classpath",
+            System.getProperty("java.class.path"),
+            "-d",
+            baseOut.toString(),
+            baseFile.toString(),
+            databaseFile.toString());
+    assertEquals(0, base, "无处理器的基类编译必须成功");
+
+    Path childSrc = dir.resolve("child-" + System.nanoTime());
+    Path childFile = childSrc.resolve("sample/Child.java");
+    Files.createDirectories(childFile.getParent());
+    Files.writeString(
+        childFile,
+        "package sample;\n"
+            + "public class Child extends Base {\n"
+            + "  @io.cordis4j.core.Inject\n"
+            + "  sample.Database replica;\n"
+            + "}\n",
+        StandardCharsets.UTF_8);
+    Path childOut = Files.createDirectories(dir.resolve("childout-" + System.nanoTime()));
+    ByteArrayOutputStream diagnostics = new ByteArrayOutputStream();
+    int child =
+        compiler.run(
+            null,
+            null,
+            diagnostics,
+            "-classpath",
+            baseOut + System.getProperty("path.separator") + System.getProperty("java.class.path"),
+            "-processorpath",
+            System.getProperty("java.class.path"),
+            "-processor",
+            "io.cordis4j.inject.processor.CordisInjectProcessor",
+            "-d",
+            childOut.toString(),
+            childFile.toString());
+    String messages = diagnostics.toString(StandardCharsets.UTF_8);
+    assertTrue(child != 0, "不可达的父类字段必须使编译失败");
+    assertTrue(messages.contains("not reachable"), () -> messages);
+    assertTrue(messages.contains("database"), "错误必须定位到字段名：" + messages);
+  }
+
+  @Test
+  @DisplayName("T60 qualifier 特殊字符转义、数组类型字段、继承 static/final 字段报错")
+  void qualifierEscapingArrayTypesAndBrokenInheritedFields() throws Exception {
+    Compilation withEscape =
+        compile(
+            List.of(
+                new Source("sample.Database", DATABASE),
+                new Source(
+                    "sample.Escaped",
+                    "package sample;\n"
+                        + "public class Escaped {\n"
+                        + "  @io.cordis4j.core.Inject(qualifier = \"a\\\"b\\\\c\\nd\\te\")\n"
+                        + "  sample.Database quoted;\n"
+                        + "}\n")));
+    assertTrue(withEscape.success(), () -> withEscape.diagnostics());
+
+    Compilation withArray =
+        compile(
+            List.of(
+                new Source("sample.Database", DATABASE),
+                new Source(
+                    "sample.ArrayHolder",
+                    "package sample;\n"
+                        + "public class ArrayHolder {\n"
+                        + "  @io.cordis4j.core.Inject\n"
+                        + "  sample.Database[] all;\n"
+                        + "}\n")));
+    assertTrue(withArray.success(), () -> withArray.diagnostics());
+    assertTrue(
+        Files.exists(withArray.output().resolve("sample/ArrayHolderCordisInjector.class")),
+        "数组类型字段必须照常生成 injector");
+
+    // An inherited static or final annotated field (compiled without the processor) is rejected
+    // when the subclass pulls in the hierarchy.
+    Path baseSrc = dir.resolve("broken-" + System.nanoTime());
+    Path baseFile = baseSrc.resolve("sample/Statics.java");
+    Files.createDirectories(baseFile.getParent());
+    Files.writeString(
+        baseFile,
+        "package sample;\n"
+            + "public class Statics {\n"
+            + "  @io.cordis4j.core.Inject static sample.Database shared;\n"
+            + "  @io.cordis4j.core.Inject final sample.Database pinned = null;\n"
+            + "}\n",
+        StandardCharsets.UTF_8);
+    Path databaseFile = baseSrc.resolve("sample/Database.java");
+    Files.writeString(databaseFile, DATABASE, StandardCharsets.UTF_8);
+    Path baseOut = Files.createDirectories(dir.resolve("brokenout-" + System.nanoTime()));
+    JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+    assertEquals(
+        0,
+        compiler.run(
+            null,
+            null,
+            null,
+            "-classpath",
+            System.getProperty("java.class.path"),
+            "-d",
+            baseOut.toString(),
+            baseFile.toString(),
+            databaseFile.toString()),
+        "无处理器的基类编译必须成功");
+
+    ByteArrayOutputStream diagnostics = new ByteArrayOutputStream();
+    Path childFile = baseSrc.resolve("sample/StaticsChild.java");
+    Files.writeString(
+        childFile,
+        "package sample;\n"
+            + "public class StaticsChild extends Statics {\n"
+            + "  @io.cordis4j.core.Inject\n"
+            + "  sample.Database replica;\n"
+            + "}\n",
+        StandardCharsets.UTF_8);
+    int child =
+        compiler.run(
+            null,
+            null,
+            diagnostics,
+            "-classpath",
+            baseOut + System.getProperty("path.separator") + System.getProperty("java.class.path"),
+            "-processorpath",
+            System.getProperty("java.class.path"),
+            "-processor",
+            "io.cordis4j.inject.processor.CordisInjectProcessor",
+            "-d",
+            Files.createDirectories(dir.resolve("brokenchild-" + System.nanoTime())).toString(),
+            childFile.toString());
+    String messages = diagnostics.toString(StandardCharsets.UTF_8);
+    assertTrue(child != 0, "继承的 static/final 注解字段必须使编译失败");
+    assertTrue(messages.contains("non-static"), () -> messages);
+    assertTrue(messages.contains("non-final"), () -> messages);
   }
 }

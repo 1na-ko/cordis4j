@@ -79,8 +79,10 @@ public interface Logger {
       }
 
       private void log(Level level, String message, Object... args) {
-        delegate.log(
-            new LogRecord(level, format(Objects.requireNonNull(message, "message"), args)));
+        LogRecord record =
+            new LogRecord(level, format(Objects.requireNonNull(message, "message"), args));
+        record.setLoggerName(delegate.getName()); // the LogRecord default would say "null"
+        delegate.log(record);
       }
     };
   }

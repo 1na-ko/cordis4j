@@ -90,8 +90,9 @@ public final class ContextImpl implements Context {
 
   /**
    * Declaration mediation (paper Algorithm 6): a declarative fiber only sees its own keys. The
-   * comparison speaks effective (realm-rewritten) keys, the same base the dependency index and the
-   * store use, so a declaration made in an isolated subtree keeps mediating its own realm's keys.
+   * comparison speaks effective (realm-rewritten) keys computed from {@code this} - the same
+   * context the subsequent lookup resolves through - so a declaration made in an isolated subtree
+   * mediates the keys it can actually reach from where it reads, not where it was declared.
    */
   private void checkAccess(ServiceKey<?> key) {
     Fiber current = Domains.fiber();
@@ -99,7 +100,7 @@ public final class ContextImpl implements Context {
       return;
     }
     ServiceKey<?> effective = key;
-    String realm = current.owner.registry.effectiveRealm(key.type());
+    String realm = this.registry.effectiveRealm(key.type());
     if (realm != null) {
       effective = ServiceKey.of(key.type(), realm);
     }
@@ -349,7 +350,22 @@ public final class ContextImpl implements Context {
       // The fiber's landing state is now unknown (never started, failed, or ACTIVE), and the
       // caller is about to lose it - ambient ownership keeps it reachable for disposal when
       // the context itself is disposed, instead of leaking an unloadable fiber.
-      track(fibers.handle(fiber));
+      Disposable orphan = fibers.handle(fiber);
+      boolean owned = false;
+      try {
+        track(orphan);
+        owned = true;
+      } catch (IllegalStateException contextDisposed) {
+        // The context is already disposing: nobody will ever run the ambient handle, so the
+        // orphan retires and unloads right here instead of leaking (possibly still ACTIVE).
+        // The interruption flag must not leak into that unload: its inertia wait would abort
+        // with IllegalStateException instead of waiting for the in-flight activation to land.
+        Thread.interrupted();
+      }
+      if (!owned) {
+        orphan.dispose();
+        Thread.currentThread().interrupt(); // keep the interruption visible to the caller
+      }
       throw new CordisException("Interrupted while activating an async plugin", interrupted);
     }
     Disposable handle = fibers.handle(fiber);
@@ -441,7 +457,11 @@ public final class ContextImpl implements Context {
       ServiceKey<T> dependency, BiFunction<Context, T, Disposable> onSatisfied) {
     Objects.requireNonNull(dependency, "dependency");
     Objects.requireNonNull(onSatisfied, "onSatisfied");
-    return injectInternal(Set.of(dependency), ctx -> onSatisfied.apply(ctx, ctx.get(dependency)));
+    // The injected value resolves under the same effective key the declaration was rewritten to
+    // (register's base): a realm declaration satisfied by an ambient qualifier binding of the
+    // same text must see that binding inside the body, not a NoSuchServiceException.
+    ServiceKey<T> effective = effectiveDependencyKey(dependency);
+    return injectInternal(Set.of(dependency), ctx -> onSatisfied.apply(ctx, ctx.get(effective)));
   }
 
   @Override
@@ -460,8 +480,19 @@ public final class ContextImpl implements Context {
     Objects.requireNonNull(second, "second");
     Objects.requireNonNull(onSatisfied, "onSatisfied");
     Set<ServiceKey<?>> dependencies = Set.copyOf(new LinkedHashSet<>(Arrays.asList(first, second)));
+    ServiceKey<T1> effectiveFirst = effectiveDependencyKey(first);
+    ServiceKey<T2> effectiveSecond = effectiveDependencyKey(second);
     return injectInternal(
-        dependencies, ctx -> onSatisfied.apply(ctx, ctx.get(first), ctx.get(second)));
+        dependencies,
+        ctx -> onSatisfied.apply(ctx, ctx.get(effectiveFirst), ctx.get(effectiveSecond)));
+  }
+
+  /**
+   * The dependency key rewritten by this context's realm overrides - register's declaration base.
+   */
+  private <T> ServiceKey<T> effectiveDependencyKey(ServiceKey<T> key) {
+    String realm = this.registry.effectiveRealm(key.type());
+    return realm != null ? ServiceKey.of(key.type(), realm) : key;
   }
 
   /**
@@ -493,14 +524,39 @@ public final class ContextImpl implements Context {
       }
       disposed = true;
     }
-    ambient.dispose(); // unloads fibers and joins their spawned tasks, LIFO
-    ExecutorService service = executor;
-    if (service != null) {
-      service.close(); // wait for remaining carrier threads to land
+    Throwable pending = null;
+    try {
+      ambient.dispose(); // unloads fibers and joins their spawned tasks, LIFO
+    } catch (RuntimeException | Error failure) {
+      pending = failure;
+    } finally {
+      // The executor closes even when the ambient teardown throws: its carrier threads would
+      // otherwise outlive the context with no remaining path to reach them (disposed is already
+      // final, so a half-done dispose could never be retried).
+      ExecutorService service = executor;
+      if (service != null) {
+        try {
+          service.close(); // wait for remaining carrier threads to land
+        } catch (RuntimeException | Error closeFailure) {
+          if (pending != null) {
+            pending.addSuppressed(closeFailure);
+          } else {
+            pending = closeFailure;
+          }
+        }
+      }
+    }
+    if (pending != null) {
+      throw Throwables.sneak(pending); // the ambient failure still propagates (T7 discipline)
     }
   }
 
   private ExecutorService executor() {
+    if (disposed) {
+      // Same contract as checkAlive, closing the theoretical window where a dispose racing a
+      // first spawn would resurrect an executor nobody will ever close again.
+      throw new IllegalStateException("Context #" + id + " is disposed");
+    }
     ExecutorService service = executor;
     if (service == null) {
       synchronized (this) {

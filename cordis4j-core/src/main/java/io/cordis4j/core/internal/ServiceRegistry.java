@@ -104,8 +104,25 @@ final class ServiceRegistry {
       }
     } catch (Throwable failure) {
       // A start/stop hook failure must not leave an orphan binding: the removal disposable
-      // has not reached the caller yet, so nobody else could ever remove it.
-      removeIfBound(storeKey, token);
+      // has not reached the caller yet, so nobody else could ever remove it. When this
+      // provide overwrote a previous binding, that binding is restored intact (token and
+      // owner fiber included) - an evaporated key would leave every dependent zombified
+      // with no store entry to drain or resolve against (Theorem 63's spirit).
+      if (existing != null) {
+        synchronized (this) {
+          store.put(storeKey, existing);
+        }
+        if (existing.service() instanceof Service previousService) {
+          try {
+            previousService.start(); // best effort: back to the pre-overwrite started state
+          } catch (Throwable restart) {
+            failure.addSuppressed(restart);
+          }
+        }
+        root().fibers.notifyBound(storeKey); // dependents re-classify against the restoration
+      } else {
+        removeIfBound(storeKey, token);
+      }
       if (supplier != null) {
         root().fibers.unsupplied(supplier, storeKey);
       }
@@ -187,14 +204,19 @@ final class ServiceRegistry {
     if (chain.isEmpty()) {
       return null;
     }
-    Object merged = chain.get(0);
-    for (int i = 1; i < chain.size(); i++) {
-      Object nearer = chain.get(i);
-      if (merged instanceof InterceptMetadata outer && nearer instanceof InterceptMetadata inner) {
-        merged = outer.merge(inner);
-      } else {
-        return nearer; // mixed metadata kinds keep nearest-wins semantics
+    // Walk from the nearest end: the nearest InterceptMetadata accumulates merges root-ward and
+    // stops at the first non-mergeable binding inside it; a chain whose nearest binding is not
+    // InterceptMetadata returns that nearest binding (nearest wins, D23's monoid guard).
+    int nearest = chain.size() - 1;
+    Object merged = chain.get(nearest);
+    if (!(merged instanceof InterceptMetadata)) {
+      return merged;
+    }
+    for (int i = nearest - 1; i >= 0; i--) {
+      if (!(chain.get(i) instanceof InterceptMetadata outer)) {
+        break; // a foreign boundary closer to the root than the merge base ends the merge
       }
+      merged = outer.merge((InterceptMetadata) merged);
     }
     return merged;
   }
