@@ -346,11 +346,6 @@ final class FiberRegistry {
     fiber.providedKeys.remove(declaredKey);
   }
 
-  /** The fiber executing on the calling thread, if any. */
-  Fiber currentFiber() {
-    return Domains.fiber();
-  }
-
   /**
    * The guard predicate (paper Section 4.3.2): the target changed for this fiber - it was retired,
    * its migration already began, or a declared dependency no longer resolves. During a withdrawal
