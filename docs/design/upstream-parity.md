@@ -29,7 +29,7 @@
 | `Inject` decorator + `ctx.inject` reactive declaration | `ctx.inject` + `@Inject` fields + compile-time processor (D21, T24, T28) | Aligned and beyond (compile-time generation) |
 | `plugin(plugin, config)` + `Service.resolveConfig` (intercept-chain config merging) | `plugin(Plugin)` + intercept storage (D17) + `intercepts(key)` chain collection (D23, T31) - callers merge with any policy | Aligned in the Java form: chain collection is the consumption semantics; per-service typed config objects stay the JVM idiom (no weak `config` field to port) |
 | `Service` base: name/config/invoke/check/tracker | `Service` marker with start/stop hooks (D9) | Intentional difference: invoke (callable services) and weak config typing are TypeScript idioms; Java services use constructors and typed config objects |
-| Fiber runtime, rc6 shadow/caller observation | fiber machine (D7/D19/D20), no shadow observation | Intentional difference: shadow/caller exist for Logger observation in upstream; the JVM logger is simplified - record and revisit if observation is wanted |
+| Fiber runtime, rc.8 shadow/caller observation | fiber machine (D7/D19/D20), no shadow observation | Intentional difference: shadow/caller exist for Logger observation in upstream; the JVM logger is simplified - record and revisit if observation is wanted |
 | `reflect` service (string-named provision behind a Proxy) | absent | Intentional difference: superseded by typed keys |
 
 ### 2.2 @cordisjs/loader
@@ -37,7 +37,7 @@
 | Upstream | Cordis4j | Status |
 |---|---|---|
 | `Loader` with `EntryTree` config: `entry` / `group` / `isolate` / `tree` composition, transactional reconcile | `Loader` reconcile engine (D18, T21) + `reconcileTree` over `ComponentSpec` (Group prefixes, Isolate realms, Include inlining) (D26, T33) | Aligned in the typed form; per-node isolation realms instead of upstream's realm table |
-| cordis configuration format: `cordis.yml`/`.json` entry trees, patch layers (`plugin-include`), dsh bundle/profile manifests | `cordis4j-loader` (D28, T42-T45): faithful reading (delayed `!!js` -> `JsExpr`, unknown fields preserved, ids generated at read time), upstream patch semantics, both manifests, and the mapping onto `ComponentSpec` with per-entry metadata | Aligned at the format layer; component resolution, JS evaluation, npm packages, and config write-back are host policy by decision D28. Patch override replaces map fields wholesale and missing insert targets warn-and-skip, matching upstream include exactly (0.4.1) |
+| cordis configuration format: `cordis.yml`/`.json` entry trees, patch layers (`plugin-include`), dsh bundle/profile manifests | `cordis4j-loader` (D28, T42-T45): faithful reading (delayed `!!js` -> `JsExpr`, unknown fields preserved, ids generated at read time), upstream patch semantics, both manifests, and the mapping onto `ComponentSpec` with per-entry metadata | Aligned at the format layer; component resolution, JS evaluation, npm packages, and config write-back are host policy by decision D28. Patch override replaces map fields wholesale and missing insert targets warn-and-skip, matching upstream include exactly (0.4.1). The dsh manifests are an external ecosystem format - their provenance is the dsh tooling documentation, not the cordis repository |
 | YAML `include` directives (`@cordisjs/include`) | `ComponentSpec.Include` inlines another source against the base directory through a caller-supplied resolver - no file format imposed | Aligned in the typed form (no YAML dependency) |
 
 ### 2.3 @cordisjs/hmr
