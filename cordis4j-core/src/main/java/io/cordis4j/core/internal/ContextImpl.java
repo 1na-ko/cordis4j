@@ -413,11 +413,13 @@ public final class ContextImpl implements Context {
     Disposable handle =
         Disposables.of(
             () -> {
-              future.cancel(true); // interrupt; the task must land (join below)
+              future.cancel(true); // interrupt; a cancelled task's get() reports
+              // CancellationException at once instead of joining the runner - the interrupted
+              // landing is waited out by dispose()'s executor close
               try {
                 future.get();
               } catch (CancellationException expected) {
-                // never started: nothing to land
+                // cancelled before or mid-run: there is nothing to join here
               } catch (ExecutionException failed) {
                 root.logger("io.cordis4j.core.task")
                     .warn("Spawned task failed: {}", failed.getCause());
