@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Core: a `plugin`/`pluginAsync`/`inject`/`spawn` registration that loses the race against a
+  concurrent dispose of its context no longer leaks - the landed fiber is retired and unloaded in
+  place (bindings withdrawn, spawned tasks cancelled and joined) and the caller receives a
+  `CordisException` instead of the scope's raw `IllegalStateException`; previously an async plugin
+  racing a dispose left a permanently ACTIVE fiber whose uncancellable spawned task could wedge
+  `root.dispose()` forever (D29, boundary 45, T65, T66).
+
 ## [0.4.1] - 2026-08-17
 
 ### Fixed
