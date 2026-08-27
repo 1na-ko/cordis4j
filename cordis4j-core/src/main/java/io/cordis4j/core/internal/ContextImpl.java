@@ -322,8 +322,16 @@ public final class ContextImpl implements Context {
       throw failure;
     }
     Disposable handle = fibers.handle(fiber);
-    track(handle);
-    return handle;
+    try {
+      track(handle);
+      return handle;
+    } catch (IllegalStateException contextDisposed) {
+      // Dispose won the race between activation and tracking: nobody will ever run the ambient
+      // handle, so the landed fiber retires and unloads right here instead of leaking with its
+      // bindings still provided (the same takeover the interrupted-caller path performs).
+      handle.dispose();
+      throw new CordisException("Context was disposed while activating a plugin", contextDisposed);
+    }
   }
 
   @Override
@@ -369,8 +377,18 @@ public final class ContextImpl implements Context {
       throw new CordisException("Interrupted while activating an async plugin", interrupted);
     }
     Disposable handle = fibers.handle(fiber);
-    track(handle);
-    return handle;
+    try {
+      track(handle);
+      return handle;
+    } catch (IllegalStateException contextDisposed) {
+      // Dispose won the race between landing and tracking: nobody will ever run the ambient
+      // handle, so the landed fiber retires and unloads right here instead of leaking - its
+      // spawned tasks would stay uncancellable and eventually wedge root.dispose()'s executor
+      // close (the leak reproduced during the 0.4.1 QA review).
+      handle.dispose();
+      throw new CordisException(
+          "Context was disposed while activating an async plugin", contextDisposed);
+    }
   }
 
   @Override
@@ -407,8 +425,16 @@ public final class ContextImpl implements Context {
                 Thread.currentThread().interrupt();
               }
             });
-    track(handle); // the enclosing domain stops the task on unload, LIFO
-    return handle;
+    try {
+      track(handle); // the enclosing domain stops the task on unload, LIFO
+      return handle;
+    } catch (IllegalStateException contextDisposed) {
+      // Dispose won the race: no enclosing scope will ever run the handle, so the task is
+      // cancelled here - interrupt only, no join (the caller may itself be a task of the same
+      // executor); dispose()'s executor close waits out the interrupted landing.
+      future.cancel(true);
+      throw new CordisException("Context was disposed while spawning a task", contextDisposed);
+    }
   }
 
   @Override
@@ -504,7 +530,15 @@ public final class ContextImpl implements Context {
     checkAlive();
     Fiber fiber = fibers.register(this, dependencies, body, false);
     Disposable handle = fibers.handle(fiber);
-    track(handle);
+    try {
+      track(handle);
+    } catch (IllegalStateException contextDisposed) {
+      // Dispose won the race before the handle was tracked: the never-activated fiber would
+      // otherwise stay indexed forever - a zombie that later notifications could still load.
+      handle.dispose(); // the INACTIVE teardown retires and unregisters it
+      throw new CordisException(
+          "Context was disposed while declaring a component", contextDisposed);
+    }
     if (!fiber.retired && !fiber.failed && fibers.satisfied(fiber)) {
       fibers.activate(fiber); // failure is routed to unload and recorded, not propagated
     }
