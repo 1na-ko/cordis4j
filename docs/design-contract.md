@@ -1,6 +1,6 @@
 # Cordis4j Design Contract
 
-> Status: **v2.11, frozen** (for v0.4.1+). Any semantic change must append a new decision-log entry
+> Status: **v2.12, frozen** (for v0.4.1+). Any semantic change must append a new decision-log entry
 > (Section 2) and bump this version. v2.6 carried D25/D26; v2.7 belonged to D27 (HMR class
 > isolation, shipped in 0.3.0) and corrected the header lag; v2.8 adds D28 (the cordis
 > configuration-format bridge in cordis4j-loader, shipped in 0.4.0) with boundary semantics 35;
@@ -8,7 +8,9 @@
 > D5's key-space note, boundaries 29/32/33, and the cycle wording. v2.10 (dig round 1) extends
 > boundary 36: the two-argument inject form resolves its injected value under the rewritten key.
 > v2.11 adds D29 (the dispose-race orphan takeover found by the 0.4.1 QA review) with boundary
-> semantics 45.
+> semantics 45. v2.12 clarifies the boundary 18/D15 spawn-cancellation wording
+> (interrupt-without-join, D30) and declares the Algorithm 6 nested-declaration mediation depth as
+> a deviation.
 > Semantic baseline: the Cordis paper, *A Programming Paradigm for Spatiotemporal Composability*,
 > Sections 3-5 (section numbers below refer to that paper); reference implementations:
 > [cordiverse/cordis](https://github.com/cordiverse/cordis) and `@deepseek-ai/cordis`@4.0.1 (MIT).
@@ -73,7 +75,7 @@ contract.
 | D12 | Supply uniqueness | Two distinct active fibers may not supply one store key (SupplyConflictException); ambient provisioning overwrites freely (administrator semantics) | Paper Section 4.2 disjoint provide sets, fail-fast in Java |
 | D13 | Declaration mediation | While a declarative fiber runs, get/find only resolve its declared keys and its own supplies (InactiveAccessException, paper Algorithm 6); plain plugins are unrestricted | The Java form of upstream proxy-mediated access checks |
 | D14 | Failure routing | An inject activation failure reverts the partial domain, is recorded and logged, and never retries; it does not propagate (paper Section 4.3.4). plugin() failures keep propagating (clause 6.7) | Sibling isolation of the paper's failure semantics |
-| D15 | Asynchrony | pluginAsync runs the effect function on a virtual thread and waits for it to land (inertia); spawn runs long tasks whose handle interrupts and joins them (starting a task is a revertible effect); currentFiber() exposes the guard (isDiverted/checkDiverted) | Paper Sections 4.3.2-4.3.3 in the Java idiom; guard = retired OR not (LOADING/ACTIVE) OR unsatisfied |
+| D15 | Asynchrony | pluginAsync runs the effect function on a virtual thread and waits for it to land (inertia); spawn runs long tasks whose handle interrupts them, the landing being awaited by the executor close at context dispose rather than joined per handle (D30; starting a task is a revertible effect); currentFiber() exposes the guard (isDiverted/checkDiverted) | Paper Sections 4.3.2-4.3.3 in the Java idiom; guard = retired OR not (LOADING/ACTIVE) OR unsatisfied |
 | D16 | Event dispatch | Listeners registered for a supertype receive subtypes (isInstance); optional per-listener filters; strict registration order within one context (updates D3) | Java's class hierarchy replaces upstream string keys |
 | D17 | Intercept metadata | Metadata implementing InterceptMetadata merges along the chain root-to-lookup, nearer-wins on conflict (the paper's right-biased monoid); other kinds stay nearest-wins | Consumption semantics of the @@intercept slot |
 | D18 | Declarative loader | LoaderConfig/ComponentEntry reconcile by id-keyed diff; the component instance is the version (a changed instance reloads); reconcile is transactional (failure restores the previous entries); dispose unloads in reverse load order | Paper Section 5.2.1 / Algorithm 10 at configuration level; record equality is the Java-native config diff |
@@ -87,7 +89,8 @@ contract.
 | D26 | Loader composition | Loader.reconcileTree flattens a ComponentSpec tree into per-entry load contexts and reconciles through the D18 engine: Group prefixes its children's ids with groupId+':'; Isolate loads its children into a derived isolate(type, realm) context (a per-node realm, disposed once its entries all unload); Include inlines another configuration source resolved against the base directory through a caller-supplied resolver (no file format imposed); duplicate flattened ids fail fast before any change; failures roll back like D18 | Upstream's entry/group/isolate/tree configuration and the include directive in typed form; the flat reconcile(LoaderConfig) is the single-context special case of the same engine |
 | D27 | HMR class isolation | cordis4j-hmr loads each plugin jar into a URLClassLoader parented on the cordis4j-core loader: host classes win over same-named plugin classes (plugins always see the host Plugin type), plugins cannot ship their own versions of host dependencies, cross-plugin same-name classes are distinct copies, and there is no module encapsulation; retraction stays close-and-collect with the GC guarantee of T26/T34 | The stage-1 model of docs/design/hmr-evaluation.md section 5; the child-first (with a cordis4j-core exclusion) and ModuleLayer upgrades are evaluated and reserved in docs/design/hmr-isolation-evaluation.md - code follows only when a real requirement appears |
 | D28 | Format adaptation boundary | cordis4j-loader bridges upstream's cordis configuration **format** - the entry-tree shape of `@cordisjs/plugin-loader` and the patch semantics of `plugin-include` - onto the core's D26 composition, and nothing beyond: reading is faithful (`cordis.yml`/`.yaml`/`.json` roots are lists of entry rows; the delayed `!!js` tag parses to an opaque JsExpr the host interpolates through a pluggable ExpressionEvaluator; unknown fields survive verbatim; a missing id is generated at read time - upstream's ensureId, without the write-back); patch layers keep upstream semantics (insert appends to the root or into a located group; overrides locate by id anywhere in the tree; a name mismatch skips the patch; config replaces wholesale; a later patch in a layer sees earlier inserts); the two dsh manifests (`dsh.bundle.patch`, the ordered `dsh.profile.bundles`) parse without any package-manager integration; the mapping wraps an entry's isolation table as nested Isolate realms (`true` -> `'#'+entryId` local, a label -> `'@'+label` shared, the first table service outermost), drops disabled entries from the mount while keeping their metadata, and hands config/inject/intercept to the host through EntryMeta; component and service-name resolution is an interface (ComponentResolver) - no JS engine, no npm/registry client, no config write-back | The format is the stable contract of the cordis ecosystem; the runtime decisions (what a name resolves to, how an expression evaluates) are host policy on the JVM - the module is a format bridge, not a runtime |
-| D29 | Dispose-race orphan takeover | A registration call whose ambient tracking loses the race against a concurrent dispose of its enclosing scope - the registrar's `track` raises `IllegalStateException: Effect scope is already disposed` - recovers the artifact in place instead of leaking: a landed `plugin`/`pluginAsync` fiber is retired and unloaded synchronously by the losing caller (bindings withdrawn, spawned tasks cancelled and joined), an `inject` fiber is retired (its INACTIVE teardown unregisters it), and a spawned task is cancelled without a self-join (dispose's executor close waits out the interrupted landing); the caller then receives `CordisException` wrapping the scope's ISE. This extends boundary 34's interrupted-caller takeover to the four lifecycle-bearing registration APIs (`plugin`, `pluginAsync`, `inject`, `spawn`); a handle that tracked before the scope flipped still reverts through the ambient recovery, and dispose/executor-close semantics are unchanged. State-only tracks (`provide`/`intercept`, event listeners, child-context tracking in `fork`/`isolate`/`withBaseUrl`) are deliberately not taken over: their race artifacts live only inside the disposed subtree, are unreachable through the API (`checkAlive` guards every observer), and merely delay reclamation of already-dead objects | F1/F2 of the 0.4.1 QA review: an experimentally reproduced leak where the post-activation `track` of `pluginAsync` raced a context dispose, leaving a permanently ACTIVE fiber whose uncancellable spawned task wedged `root.dispose()` (T65/T66) |
+| D29 | Dispose-race orphan takeover | A registration call whose ambient tracking loses the race against a concurrent dispose of its enclosing scope - the registrar's `track` raises `IllegalStateException: Effect scope is already disposed` - recovers the artifact in place instead of leaking: a landed `plugin`/`pluginAsync` fiber is retired and unloaded synchronously by the losing caller (bindings withdrawn, spawned tasks cancelled - their landing awaited by the executor close), an `inject` fiber is retired (its INACTIVE teardown unregisters it), and a spawned task is cancelled without a self-join (dispose's executor close waits out the interrupted landing); the caller then receives `CordisException` wrapping the scope's ISE. This extends boundary 34's interrupted-caller takeover to the four lifecycle-bearing registration APIs (`plugin`, `pluginAsync`, `inject`, `spawn`); a handle that tracked before the scope flipped still reverts through the ambient recovery, and dispose/executor-close semantics are unchanged. State-only tracks (`provide`/`intercept`, event listeners, child-context tracking in `fork`/`isolate`/`withBaseUrl`) are deliberately not taken over: their race artifacts live only inside the disposed subtree, are unreachable through the API (`checkAlive` guards every observer), and merely delay reclamation of already-dead objects | F1/F2 of the 0.4.1 QA review: an experimentally reproduced leak where the post-activation `track` of `pluginAsync` raced a context dispose, leaving a permanently ACTIVE fiber whose uncancellable spawned task wedged `root.dispose()` (T65/T66) |
+| D30 | Spawn cancellation semantics | A spawned task's handle cancels its FutureTask (interrupt) and then reads the result; a cancelled task's get() reports CancellationException immediately instead of joining the runner, so a handle dispose interrupts without waiting for the landing - the interrupted landing is awaited by the context dispose's executor close. Per-handle join is deliberately not implemented: waiting for an arbitrary user task to notice its interruption would wedge unloading; the guard protocol (boundary 17) is the cooperative exit. This corrects the boundary 18/D15 wording that claimed "interrupts and joins" - implementation, JDK semantics (T78), and docs now agree | Post-merge review N1: the docs promised a join the JDK's FutureTask cannot deliver after cancellation; T78 pins the real semantics |
 
 ---
 
@@ -206,7 +209,7 @@ by the module).
 
     // ── Asynchrony (D15, paper Sections 4.3.2-4.3.3) ──
     Disposable pluginAsync(AsyncPlugin plugin)  // virtual thread; waits for activation to land
-    Disposable spawn(Runnable task)             // reversible task: handle interrupts and joins
+    Disposable spawn(Runnable task)             // reversible task: handle interrupts; close awaits the landing
     Optional<FiberHandle> currentFiber()        // the guard: isDiverted / checkDiverted
 
     // ── Events (D16) ──
@@ -285,6 +288,11 @@ by the module).
 9. Reactive re-activation reuses the fiber (fresh effect domain per activation); the paper's
    reload keeps the same fiber identity too, but upstream TS recreates plugin instances - the
    callback must therefore be idempotent-safe to re-run.
+10. Declaration mediation depth: Algorithm 6 authorizes access by walking up the fiber chain
+   through the parents' committed views; Cordis4j's checkAccess consults the current fiber's
+   declarations only (ContextImpl), so a nested declarative fiber reading a key declared by an
+   enclosing fiber is rejected with InactiveAccessException where the paper would authorize it -
+   a conservative deviation, declared here rather than implemented as a chain walk (T82).
 
 ---
 
@@ -325,7 +333,9 @@ by the module).
 17. Guard: a spawned task inherits its spawner's fiber; isDiverted is true once the fiber is
     retired, unloading/inactive, or its declaration stopped resolving (T20).
 18. pluginAsync waits for the activation to land; checked activation failures propagate wrapped
-    in CordisException; a spawned task's handle interrupts and joins it on domain unload (T19).
+    in CordisException; a spawned task's handle interrupts the task on domain unload without
+    joining it - the interrupted landing is awaited by the context dispose's executor close, and
+    cooperative tasks exit early through the guard (D30, T19/T78).
 19. Events: a supertype listener receives subtype events; per-listener filters run before the
     listener (T17).
 20. Intercept metadata: all-InterceptMetadata chains merge root-to-lookup (nearer wins on
