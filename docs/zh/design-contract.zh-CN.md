@@ -1,13 +1,15 @@
 # Cordis4j 设计契约（Design Contract）
 
 > 本文档是英文规范本 [../design-contract.md](../design-contract.md) 的中文译本（规范本语言：英文）。
-> 如有歧义，以英文版为准。最近同步：2026-08-27（v2.11——处置竞态孤儿接管 D29/边界 45，0.4.1 QA 评审产出）。
-> 状态：**v2.11 冻结**（对应 v0.4.1+）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
+> 如有歧义，以英文版为准。最近同步：2026-08-28（v2.12——spawn 取消措辞真话化 D30/边界 18、F3 偏差声明）。
+> 状态：**v2.12 冻结**（对应 v0.4.1+）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
 > v2.6 承载 D25/D26；v2.7 归属 D27（HMR 类隔离，随 0.3.0 发布）并修正头部滞后；v2.8 追加
 > D28（cordis4j-loader 的 cordis 配置格式桥接，随 0.4.0 发布）与边界语义 35；v2.9 为 0.4.1
 > 语义澄清批——边界语义 36-44，及对 D5 键空间说明、边界 29/32/33 与环措辞的修正；
 > v2.10（挖掘第 1 轮）扩展边界 36——双参 inject 的注入值按重写后的键解析；
-> v2.11 追加 D29（0.4.1 QA 评审发现的处置竞态孤儿接管）与边界语义 45。
+> v2.11 追加 D29（0.4.1 QA 评审发现的处置竞态孤儿接管）与边界语义 45；
+> v2.12 澄清边界 18/D15 的 spawn 取消措辞（interrupt-without-join，D30），并声明 Algorithm 6
+> 嵌套声明中介深度的偏差。
 > 语义基线：cordis 论文《A Programming Paradigm for Spatiotemporal Composability》§3–§5（下文引用章节号即论文章节号）；
 > 参考实现：cordiverse/cordis 与 @deepseek-ai/cordis@4.0.1（MIT）。
 > Cordis4j 是论文语义的 **Java 重想**（inspired-by，非逐行移植）；与上游 TS API 的一切差异在 §5 显式声明。
@@ -59,7 +61,7 @@
 | D12 | 供给唯一性 | 两个不同活跃 fiber 不得供给同一 store 键（SupplyConflictException）；ambient 供给自由覆盖（管理员语义） | 论文 §4.2 供给集不相交，Java 侧快速失败 |
 | D13 | 声明中介 | 声明式 fiber 运行期间，get/find 只解析其声明的键与自供的键（InactiveAccessException，Algorithm 6）；普通插件不受限 | 上游 Proxy 中介访问校验的 Java 形态 |
 | D14 | 失败路由 | inject 激活失败回滚部分域、记录并记日志、永不重试、不传播（§4.3.4）；plugin() 失败保持传播（条款 6.7） | 论文失败语义的兄弟隔离 |
-| D15 | 异步 | pluginAsync 在虚拟线程上运行效应函数并等待落地（惯性）；spawn 运行长任务，句柄中断并 join（启动任务是可逆效应）；currentFiber() 暴露 guard（isDiverted/checkDiverted） | §4.3.2–4.3.3 的 Java 惯用形态；guard = retired 或 非(LOADING/ACTIVE) 或 声明不满足 |
+| D15 | 异步 | pluginAsync 在虚拟线程上运行效应函数并等待落地（惯性）；spawn 运行长任务，句柄中断任务但不逐句柄 join——落地由 context dispose 的 executor close 等待（D30；启动任务是可逆效应）；currentFiber() 暴露 guard（isDiverted/checkDiverted） | §4.3.2–4.3.3 的 Java 惯用形态；guard = retired 或 非(LOADING/ACTIVE) 或 声明不满足 |
 | D16 | 事件分发 | 父类型监听器接收子类型事件（isInstance）；可选每监听器过滤器；同上下文内严格按注册顺序（更新 D3） | Java 类层级取代上游字符串键 |
 | D17 | 拦截元数据 | 实现 InterceptMetadata 的元数据沿链从根向查询点合并，近端优先（论文右偏幺半群）；其他类型保持 nearest-wins | @@intercept 槽位的消费语义 |
 | D18 | 声明式加载器 | LoaderConfig/ComponentEntry 按 id 键控 diff；组件实例即版本（换实例即重载）；调和事务性（失败恢复上一配置）；dispose 按装载逆序 | 论文 §5.2.1 / Algorithm 10 的配置级形态；record 相等性是 Java 原生配置 diff |
@@ -74,6 +76,7 @@
 | D27 | HMR 类隔离 | cordis4j-hmr 把每个插件 jar 装入父为 cordis4j-core 加载器的 URLClassLoader：宿主类优先于插件内同名类（插件永远看到宿主 Plugin 类型），插件不能自带宿主依赖的其他版本，跨插件同名类各持副本，无模块封装；回收保持 close-and-collect 与 T26/T34 的 GC 保证 | docs/design/hmr-evaluation.md 第 5 节的阶段 1 模型；child-first（含 cordis4j-core 排除）与 ModuleLayer 升级已在 docs/design/hmr-isolation-evaluation.md 评估并预留——仅在真实需求出现时再动代码 |
 | D28 | 格式适配边界 | cordis4j-loader 桥接上游 cordis 配置**格式**——`@cordisjs/plugin-loader` 的条目树形状与 `plugin-include` 的 patch 语义——到核心 D26 组合之上，且仅此而已：读取忠实（`cordis.yml`/`.yaml`/`.json` 根为条目行列表；延迟 `!!js` 标签解析为不透明 JsExpr，由宿主经可插拔 ExpressionEvaluator 插值；未知字段逐字保留；缺省 id 读取时生成——上游 ensureId，但不写回）；patch 层保持上游语义（insert 追加根或定位 group；override 按 id 递归定位；name 不匹配跳过；config 整体替换；同层后继 patch 可见先前 insert）；两个 dsh 清单（`dsh.bundle.patch`、有序 `dsh.profile.bundles`）解析而不集成包管理器；映射把条目的隔离表包装为嵌套 Isolate 域（`true` → `'#'+entryId` 本地域，label → `'@'+label` 共享域，表首服务最外层），disabled 条目退出装载但保留元数据，config/inject/intercept 经 EntryMeta 交宿主；组件与服务名解析是接口（ComponentResolver）——不内置 JS 引擎、不做 npm/registry 客户端、不写回配置 | 格式是 cordis 生态的稳定契约；运行时决策（名字解析为什么、表达式如何求值）在 JVM 上是宿主策略——本模块是格式桥，不是运行时 |
 | D29 | 处置竞态孤儿接管 | 注册调用的 ambient 跟踪与其所属作用域的并发 dispose 竞速落败时——注册者的 `track` 抛出 `IllegalStateException: Effect scope is already disposed`——就地回收产物而非泄漏：已落地的 `plugin`/`pluginAsync` fiber 由落败的调用者同步退休并卸载（绑定撤回、spawn 任务取消并 join），`inject` fiber 退休（其 INACTIVE 卸载路径将其注销），spawn 的任务仅取消不自 join（dispose 的 executor close 等待中断落地）；随后调用者收到包裹作用域 ISE 的 `CordisException`。这将边界 34 的中断调用者接管推广到四个承载生命周期的注册 API（`plugin`/`pluginAsync`/`inject`/`spawn`）；在作用域翻转前已入队的 handle 仍经 ambient 恢复回收，dispose/executor-close 语义不变。纯状态型跟踪（`provide`/`intercept`、事件监听、`fork`/`isolate`/`withBaseUrl` 的子上下文跟踪）有意不接管：其竞态产物仅存于已处置子树内，经 API 不可达（`checkAlive` 挡住全部观察者），仅延迟已死对象的回收 | 0.4.1 QA 评审的 F1/F2：实验复现的泄漏——`pluginAsync` 激活后的 `track` 与 context dispose 竞速，留下永久 ACTIVE 的 fiber，其无法取消的 spawn 任务可挂死 `root.dispose()`（T65/T66） |
+| D30 | spawn 取消语义 | spawn 任务的句柄取消其 FutureTask（中断）随后读取结果；已取消任务的 get() 立即抛 CancellationException 而非 join runner，故句柄 dispose 中断但不等待落地——被中断任务的落地由 context dispose 的 executor close 等待。逐句柄 join 有意不实现：等待任意用户任务感知中断会挂死卸载；guard 协议（边界 17）是协作式出口。此条更正边界 18/D15 中宣称"中断并 join"的措辞——实现、JDK 语义（T78）与文档现已一致 | 合并后评审 N1：文档承诺了 JDK FutureTask 在取消后无法兑现的 join；T78 钉住了真实语义 |
 
 ---
 
@@ -154,7 +157,7 @@
         Disposable plugin(Plugin plugin)
         Disposable plugin(Object... services)   // 便捷：只提供服务的插件
         Disposable pluginAsync(AsyncPlugin)     // 虚拟线程；等待激活落地（D15）
-        Disposable spawn(Runnable task)         // 可逆任务：句柄中断并 join
+        Disposable spawn(Runnable task)         // 可逆任务：句柄中断；落地由 close 等待
         Optional<FiberHandle> currentFiber()    // guard：isDiverted / checkDiverted
         Logger logger(String name)
 
@@ -283,7 +286,8 @@
 17. guard：spawn 的任务继承其发起者的 fiber；fiber 退役、卸载中/非活跃、或声明停止可解析后
     isDiverted 为真（T20）。
 18. pluginAsync 等待激活落地；受检激活失败以 CordisException 包装传播；spawn 任务句柄在域卸载时
-    中断并 join（T19）。
+    中断但不 join——被中断任务的落地由 context dispose 的 executor close 等待，协作任务经 guard
+    提前退出（D30，T19/T78）。
 19. 事件：父类型监听器接收子类型事件；每监听器过滤器先于监听器执行（T17）。
 20. 拦截元数据：全链 InterceptMetadata 从根向查询点合并（冲突近端胜）；混合类型保持
     nearest-wins（T18）。

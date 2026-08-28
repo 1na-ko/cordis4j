@@ -98,4 +98,31 @@ class AccessControlTest {
     ctx.provide(new Vault("s3cret"));
     assertEquals(List.of("heard:hi"), trace);
   }
+
+  @Test
+  @DisplayName("T88 嵌套声明中介深度偏差：子声明 fiber 读父声明的键被拒（§5 偏差 10，保守方向）")
+  void nestedDeclarationDoesNotInheritTheParentScope() {
+    Context root = Contexts.create();
+    root.provide(new Vault("s3cret"));
+    root.provide(new PublicApi());
+    List<String> trace = new ArrayList<>();
+
+    root.inject(
+        Vault.class,
+        (c, vault) -> {
+          c.inject(
+              PublicApi.class,
+              (inner, api) -> {
+                try {
+                  inner.get(Vault.class); // declared by the parent fiber, not by this one
+                  trace.add("nested:allowed");
+                } catch (InactiveAccessException rejected) {
+                  trace.add("nested:blocked");
+                }
+                return Disposables.none();
+              });
+          return Disposables.none();
+        });
+    assertEquals(List.of("nested:blocked"), trace);
+  }
 }

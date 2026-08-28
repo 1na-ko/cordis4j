@@ -413,10 +413,11 @@ public interface Context extends Disposable {
    * exceptions.
    *
    * <p>Long-lived work started by {@code apply} should run through {@link #spawn} so that unloading
-   * the plugin interrupts and joins it - starting a task is an effect whose inverse is stopping it.
+   * the plugin interrupts it - starting a task is an effect whose inverse is stopping it; the
+   * interrupted landing is awaited by the context dispose's executor close, not joined per task.
    *
    * @param plugin the plugin to apply
-   * @return a disposable that unloads the plugin, joining its spawned tasks first
+   * @return a disposable that unloads the plugin, interrupting its spawned tasks first
    * @throws IllegalStateException if this context is disposed
    * @throws NullPointerException if {@code plugin} is null
    */
@@ -424,15 +425,16 @@ public interface Context extends Disposable {
 
   /**
    * Runs a long-lived task on the tree's virtual-thread executor and returns its handle as a
-   * tracked effect of the enclosing scope: disposing the handle interrupts the task and waits for
-   * it to land, and an enclosing plugin domain does so automatically when it unloads.
+   * tracked effect of the enclosing scope: disposing the handle interrupts the task (the landing is
+   * awaited by the context dispose's executor close, not joined per handle), and an enclosing
+   * plugin domain does so automatically when it unloads.
    *
    * <p>The task may poll {@link #currentFiber()} and check diversion to stop early when its plugin
    * is unloaded. A failing task is reported to the {@code io.cordis4j.core.task} logger; its
    * failure never propagates to sibling tasks.
    *
    * @param task the task to run, never null
-   * @return a disposable that interrupts and joins the task
+   * @return a disposable that interrupts the task; dispose's executor close awaits the landing
    * @throws IllegalStateException if this context is disposed
    * @throws NullPointerException if {@code task} is null
    */

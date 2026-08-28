@@ -115,7 +115,7 @@ mvn -pl cordis4j-demo exec:java
 ## 构建与质量门禁
 
 ```console
-mvn verify   # enforcer + spotless + 测试（T1-T86，共 244 个）+ jacoco（>= 85%）+ javadoc + 依赖分析
+mvn verify   # enforcer + spotless + 测试（T1-T88，共 246 个）+ jacoco（>= 85%）+ javadoc + 依赖分析
 ```
 
 ## 路线图

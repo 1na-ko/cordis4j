@@ -11,10 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Core: a `plugin`/`pluginAsync`/`inject`/`spawn` registration that loses the race against a
   concurrent dispose of its context no longer leaks - the landed fiber is retired and unloaded in
-  place (bindings withdrawn, spawned tasks cancelled and joined) and the caller receives a
-  `CordisException` instead of the scope's raw `IllegalStateException`; previously an async plugin
+  place (bindings withdrawn, spawned tasks cancelled; their landing is awaited by dispose's
+  executor close, not joined per handle) and the caller receives a `CordisException` instead of
+  the scope's raw `IllegalStateException`; previously an async plugin
   racing a dispose left a permanently ACTIVE fiber whose uncancellable spawned task could wedge
   `root.dispose()` forever (D29, boundary 45, T65, T66).
+
+### Tests
+
+- Failure-half regression campaign: T67-T86 pin the rollback halves of the HMR transactional
+  reload, the loader compensation (out-of-order undo, realm count restoration, discard on
+  failure), the boundary-33 service-hook recovery, the spawn cancellation discipline, and the
+  unload race branches; T87 adds a deterministic inject dispose-race takeover test (boundary 45);
+  T88 pins deviation 10 (nested declaration mediation depth).
+- jacoco gains a per-module BUNDLE/BRANCH >= 80% coverage gate.
 
 ## [0.4.1] - 2026-08-17
 
