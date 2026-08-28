@@ -256,6 +256,10 @@
 8. Logger/logger(name)：与上游内建日志服务最小对齐（java.util.logging 适配）的零依赖实现。
 9. 反应式重激活复用同一 fiber（每次激活使用全新效应域）；论文的 reload 同样保持 fiber 身份，
    但上游 TS 会重建插件实例——因此回调必须可安全重跑。
+10. 声明中介深度：Algorithm 6 沿 fiber 链向上经父级的已提交视图授权访问；Cordis4j 的
+   checkAccess 只查当前 fiber 的声明（ContextImpl），因此嵌套声明式 fiber 读取外层 fiber
+   声明的键会被以 InactiveAccessException 拒绝——论文语义本会授权。这是保守方向的偏差，
+   此处显式声明而非实现为链上行走（T88）。
 
 ---
 

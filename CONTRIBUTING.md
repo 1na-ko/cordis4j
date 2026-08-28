@@ -9,8 +9,8 @@ Please keep discussions friendly and about the code; that's the whole etiquette 
 ## Building and testing
 
 - JDK 21+, Maven 3.9+.
-- `mvn verify` runs what CI runs: format check, tests, line coverage (>= 85%), javadoc
-  (doclint), and dependency analysis.
+- `mvn verify` runs what CI runs: format check, tests, coverage (line >= 85%, branch >= 80%),
+  javadoc (doclint), and dependency analysis.
 - `mvn spotless:apply` fixes Java formatting before committing.
 
 ## Pull requests
