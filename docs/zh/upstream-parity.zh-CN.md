@@ -1,8 +1,9 @@
 # 上游对齐基准：以 cordiverse/cordis 为锚
 
 > 本文档是英文规范本 [../design/upstream-parity.md](../design/upstream-parity.md) 的中文译本
-> （规范本语言：英文）。如有歧义，以英文版为准。最近同步：2026-08-15（v1 初版）。
-> 状态：cordiverse/cordis@main（2026 年 8 月，9 个 package）对 Cordis4j 的基线快照。
+> （规范本语言：英文）。如有歧义，以英文版为准。最近同步：2026-08-28（rc.8 锚点、dsh 来源注记）。
+> 状态：cordiverse/cordis@main（2026 年 8 月 @ 8cc9e33，9 个 package，core 4.0.0-rc.8）对
+> Cordis4j 的基线快照。
 > 本基准锚定目标：Cordis4j 应具备与 Cordis 仓库同等的能力，同时保持 JVM 优势。它是随双方演进
 > 更新的活基线；上游实现与论文分歧时，论文仍是语义锚。
 
@@ -35,7 +36,7 @@
 | 上游 | Cordis4j | 状态 |
 |---|---|---|
 | `Loader` 与 `EntryTree` 配置：`entry` / `group` / `isolate` / `tree` 组合、事务性调和 | `Loader` 调和引擎（D18、T21）+ `ComponentSpec` 之上的 `reconcileTree`（Group 前缀、Isolate 域、Include 内联）（D26、T33） | 类型化形态已对齐；每节点隔离域取代上游的 realm 表 |
-| cordis 配置格式：`cordis.yml`/`.json` 条目树、patch 层（`plugin-include`）、dsh bundle/profile 双清单 | `cordis4j-loader`（D28、T42-T45）：忠实读取（延迟 `!!js` → `JsExpr`、未知字段保留、读取时生成缺省 id）、上游 patch 语义、双清单解析，并携带逐条目元数据映射到 `ComponentSpec` | 格式层已对齐；组件解析、JS 求值、npm 包与配置写回按决策 D28 属宿主策略。patch override 的 map 字段整替、缺失 insert 目标告警跳过，与上游 include 完全一致（0.4.1） |
+| cordis 配置格式：`cordis.yml`/`.json` 条目树、patch 层（`plugin-include`）、dsh bundle/profile 双清单 | `cordis4j-loader`（D28、T42-T45）：忠实读取（延迟 `!!js` → `JsExpr`、未知字段保留、读取时生成缺省 id）、上游 patch 语义、双清单解析，并携带逐条目元数据映射到 `ComponentSpec` | 格式层已对齐；组件解析、JS 求值、npm 包与配置写回按决策 D28 属宿主策略。patch override 的 map 字段整替、缺失 insert 目标告警跳过，与上游 include 完全一致（0.4.1）。dsh 双清单是外部生态格式——出处为 dsh 工具文档，不在 cordis 仓库内 |
 | YAML `include` 指令（`@cordisjs/include`） | `ComponentSpec.Include` 经调用方提供的 resolver 相对基础目录内联另一配置源——不限定文件格式 | 类型化形态已对齐（无 YAML 依赖） |
 
 ### 2.3 @cordisjs/hmr
