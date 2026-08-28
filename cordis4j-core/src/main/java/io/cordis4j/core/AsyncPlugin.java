@@ -11,8 +11,8 @@ package io.cordis4j.core;
  * <p>{@code apply} runs inside the plugin's own effect domain exactly like {@link Plugin}; the only
  * difference is the carrier thread and the permission to throw checked exceptions. Long-lived work
  * started from {@code apply} should run through {@code Context.spawn} so that unloading the plugin
- * interrupts and joins it - the inverse of starting a task (paper Section 3.1, reversible effects),
- * and the Java form of the paper's inertia: a migration waits for in-flight work to land.
+ * interrupts it - the inverse of starting a task (paper Section 3.1, reversible effects), and the
+ * Java form of the paper's inertia: a migration waits for in-flight work to land.
  */
 @FunctionalInterface
 public interface AsyncPlugin {
