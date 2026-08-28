@@ -27,7 +27,7 @@
 | `Inject` 装饰器 + `ctx.inject` 反应式声明 | `ctx.inject` + `@Inject` 字段 + 编译期处理器（D21、T24、T28） | 已对齐并超越（编译期生成） |
 | `plugin(plugin, config)` + `Service.resolveConfig`（intercept 链配置合并） | `plugin(Plugin)` + intercept 存储（D17）+ `intercepts(key)` 链收集（D23、T31）——调用方以任意策略合并 | Java 形态已对齐：链收集即消费语义；每服务类型化配置对象仍是 JVM 惯用（无需移植弱类型 config 字段） |
 | `Service` 基类：name/config/invoke/check/tracker | `Service` 标记接口 + start/stop 钩子（D9） | 有意差异：invoke（可调用服务）与弱类型配置是 TS 惯用；Java 服务用构造器与类型化配置对象 |
-| Fiber 运行时，rc6 的 shadow/caller 观测 | fiber 状态机（D7/D19/D20），无 shadow 观测 | 有意差异：shadow/caller 服务于上游 Logger 观测；JVM logger 已简化——记录，需要观测时再议 |
+| Fiber 运行时，rc.8 的 shadow/caller 观测 | fiber 状态机（D7/D19/D20），无 shadow 观测 | 有意差异：shadow/caller 服务于上游 Logger 观测；JVM logger 已简化——记录，需要观测时再议 |
 | `reflect` 服务（Proxy 后字符串名提供） | 无 | 有意差异：被类型键取代 |
 
 ### 2.2 @cordisjs/loader

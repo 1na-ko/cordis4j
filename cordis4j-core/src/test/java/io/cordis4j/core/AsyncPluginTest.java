@@ -80,7 +80,7 @@ class AsyncPluginTest {
               return Disposables.none();
             });
     started.await();
-    handle.dispose(); // interrupts and joins the spawned task
+    handle.dispose(); // interrupts the task; the landing is awaited by dispose's executor close
     finished.await();
     assertEquals(List.of("interrupted"), trace, "任务必须被中断并落地");
   }

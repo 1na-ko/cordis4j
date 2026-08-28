@@ -292,7 +292,7 @@ by the module).
    through the parents' committed views; Cordis4j's checkAccess consults the current fiber's
    declarations only (ContextImpl), so a nested declarative fiber reading a key declared by an
    enclosing fiber is rejected with InactiveAccessException where the paper would authorize it -
-   a conservative deviation, declared here rather than implemented as a chain walk (T82).
+   a conservative deviation, declared here rather than implemented as a chain walk (T88).
 
 ---
 

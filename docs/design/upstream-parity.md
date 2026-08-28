@@ -1,7 +1,8 @@
 # Upstream Parity: cordiverse/cordis as the Alignment Anchor
 
 > Canonical language: **English**. Chinese translation: docs/zh/upstream-parity.zh-CN.md.
-> Status: baseline snapshot of cordiverse/cordis@main (August 2026, 9 packages) against Cordis4j.
+> Status: baseline snapshot of cordiverse/cordis@main (August 2026 @ 8cc9e33, 9 packages,
+> core 4.0.0-rc.8) against Cordis4j.
 > This document anchors the goal: Cordis4j should be as capable as the Cordis repository, while
 > keeping the JVM's advantages. It is a living baseline, updated as either side evolves; the
 > paper remains the semantic anchor where the upstream implementation and the paper diverge.

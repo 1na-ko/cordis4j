@@ -22,7 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Failure-half regression campaign: T67-T86 pin the rollback halves of the HMR transactional
   reload, the loader compensation (out-of-order undo, realm count restoration, discard on
   failure), the boundary-33 service-hook recovery, the spawn cancellation discipline, and the
-  unload race branches; T87 adds a deterministic inject dispose-race takeover test (boundary 45).
+  unload race branches; T87 adds a deterministic inject dispose-race takeover test (boundary 45);
+  T88 pins deviation 10 (nested declaration mediation depth).
 - jacoco gains a per-module BUNDLE/BRANCH >= 80% coverage gate.
 
 ## [0.4.1] - 2026-08-17
