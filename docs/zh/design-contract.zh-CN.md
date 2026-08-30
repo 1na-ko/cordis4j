@@ -1,15 +1,20 @@
 # Cordis4j 设计契约（Design Contract）
 
 > 本文档是英文规范本 [../design-contract.md](../design-contract.md) 的中文译本（规范本语言：英文）。
-> 如有歧义，以英文版为准。最近同步：2026-08-28（v2.12——spawn 取消措辞真话化 D30/边界 18、F3 偏差声明）。
-> 状态：**v2.12 冻结**（对应 v0.4.1+）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
+> 如有歧义，以英文版为准。最近同步：2026-08-31（v2.13——语义漂移复核批：偏差 11-14、D3 理由修正）。
+> 状态：**v2.13 冻结**（对应 v0.4.1+）。任何语义变更必须经由决策日志（§2）追加新条目并提升版本。
 > v2.6 承载 D25/D26；v2.7 归属 D27（HMR 类隔离，随 0.3.0 发布）并修正头部滞后；v2.8 追加
 > D28（cordis4j-loader 的 cordis 配置格式桥接，随 0.4.0 发布）与边界语义 35；v2.9 为 0.4.1
 > 语义澄清批——边界语义 36-44，及对 D5 键空间说明、边界 29/32/33 与环措辞的修正；
 > v2.10（挖掘第 1 轮）扩展边界 36——双参 inject 的注入值按重写后的键解析；
 > v2.11 追加 D29（0.4.1 QA 评审发现的处置竞态孤儿接管）与边界语义 45；
 > v2.12 澄清边界 18/D15 的 spawn 取消措辞（interrupt-without-join，D30），并声明 Algorithm 6
-> 嵌套声明中介深度的偏差。
+> 嵌套声明中介深度的偏差；
+> v2.13 为语义漂移复核批，经与 cordis 主线 4.0.0-rc.9 @ b912d39 的运行时对拍核验：
+> 声明偏差 11-14（激活时序、卸载执行模型、failed fiber 恢复、事件可见性），
+> 修正 D3 理由（冒泡模型是有意背离而非与上游一致），并核验撤销 store 删除时序差异
+> （上游先删全局条目、依赖者经每-fiber 快照解析）在可观察层面等价，维持契约现状
+> （D20 / 边界 14）。
 > 语义基线：cordis 论文《A Programming Paradigm for Spatiotemporal Composability》§3–§5（下文引用章节号即论文章节号）；
 > 参考实现：cordiverse/cordis 与 @deepseek-ai/cordis@4.0.1（MIT）。
 > Cordis4j 是论文语义的 **Java 重想**（inspired-by，非逐行移植）；与上游 TS API 的一切差异在 §5 显式声明。
@@ -49,7 +54,7 @@
 |---|---|---|---|
 | D1 | 服务访问 | 显式 ctx.get(ServiceKey) / find 返回 Optional；注解注入在 P3 | 论文 §6.4：注解 + 编译期生成是代理中介的认可替代；核心保持零依赖 |
 | D2 | 插件形态 | @FunctionalInterface Plugin.apply(Context) -> Disposable；apply 内的注册属于隐式效应域 | 对应论文 fiber.apply；Java 惯用形态 |
-| D3 | 事件模型 | 全同步分发；emit 先跑当前上下文，再沿父链到根（子→根）；监听器抛异常则传播且剩余跳过（D16 扩展分发语义） | 与上游一致；虚拟线程异步在 D15 |
+| D3 | 事件模型 | 全同步分发；emit 先跑当前上下文，再沿父链到根（子→根）；监听器抛异常则传播且剩余跳过（D16 扩展分发语义） | 有意背离而非与上游一致（v2.13 修正）：上游 rc.9 维护单张共享总线，普通 emit 无视注册上下文触达全部注册（隔离须经 thisArg `[Context.filter]` 显式选择）；每上下文总线的冒泡形态遵循 §3.3.1 空间方向（子见父、反向不可见），登记为偏差 14；虚拟线程异步在 D15 |
 | D4 | 命名 | groupId/package io.cordis4j；artifactId cordis4j-core；JPMS 模块 io.cordis4j.core | 检索确认无冲突；冻结 |
 | D5 | 服务键 | ServiceKey<T> = (Class<T> type, String qualifier)；qualifier 是 realm 的一维投影；get(Foo.class) 是默认限定符糖 | 为论文 §6.2 多提供者与 loader realm 预留扩展点。因此 realm 名与同文本的 qualifier 是同一个 store key——隔离声明可被带同文本 qualifier 的 ambient 绑定满足（边界 36） |
 | D6 | 异常体系 | CordisException（基类）→ NoSuchServiceException（含键+查找路径）/ InactiveAccessException（声明校验，D13）/ DisposeException（suppressed 聚合）/ SupplyConflictException / CyclicDependencyException / DivertedException | 对齐上游 Algorithm 6 的两类访问失败与其余守卫信号 |
@@ -260,6 +265,25 @@
    checkAccess 只查当前 fiber 的声明（ContextImpl），因此嵌套声明式 fiber 读取外层 fiber
    声明的键会被以 InactiveAccessException 拒绝——论文语义本会授权。这是保守方向的偏差，
    此处显式声明而非实现为链上行走（T88）。
+11. 激活时序：上游把每个 fiber 体推迟至少一个微任务（`_reload` 在执行 runner 前先
+   `await Promise.resolve()`），因此 `ctx.plugin()` 在 body 运行前即返回；Cordis4j 的同步
+   内核在 `plugin()`/`inject()` 返回前完成激活，返回的 handle 指向已落地的 fiber。该推迟
+   防护的是跨 JS 事件循环的栈重入；同步 JVM 调用栈不存在此窗口，异步落地另有 pluginAsync
+   （D15）。迁移注意：依赖"已注册但未运行"赢得注册竞态的代码行为不同（T89）。
+12. 卸载执行模型：上游并发回退 fiber 顶层各效应组（`_unload` 中对 disposables 用
+   `Promise.all`；仅单个效应组内部才是严格 LIFO 串行）；Cordis4j 对整个效应域跨组全量
+   串行 LIFO 回退。串行使卸载确定序、DisposeException 聚合（T7）良定义，且用户清理代码
+   不与 D19 锁序交错。依赖跨组并发卸载的插件（如多个 disposer 互相等待）在此会死锁——
+   这种依赖即便在上游也依赖计时，并不可靠（T90）。
+13. failed fiber 恢复：上游 `fiber.update()` 清除 `_error` 并重启 fiber（spec 钉有
+   "update recovers a failed fiber"）；Cordis4j 不提供恢复 API——失败激活是终态
+   （D14、边界 13），update-恢复的等价路径是撤销声明后重新声明（全新 fiber）。上游的
+   依赖刷新路径同样不会复活 failed fiber（两侧均有 spec 钉住）；Loader 的按 id diff
+   reload 覆盖了上游用 update() 建模的配置更新场景（T92）。
+14. 事件可见性：上游维护单张共享事件总线——普通 `ctx.emit` 触达注册在任意上下文上的
+   监听器（含兄弟子树），隔离须由携带 `[Context.filter]` 的 thisArg 显式选择；
+   Cordis4j 每上下文一张总线，emit 仅子→根冒泡——根看不到子的注册，兄弟子树互不可见
+   （D3）。跨子树通信须注册在共同祖先上（T93）。
 
 ---
 

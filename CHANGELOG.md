@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Documentation
+
+- Design contract v2.13 - the semantic-drift review batch, verified against the cordis mainline
+  (4.0.0-rc.9 @ b912d39) by runtime probes on both sides: deviations 11-14 declared - activation
+  timing (synchronous, T89), unload execution model (fully serial LIFO across effect groups,
+  T90), failed-fiber recovery (re-declaration instead of update(), T92), and event visibility
+  (per-context child-to-root bubbling vs the upstream shared bus, T93); D3's rationale corrected
+  (the bubbling model is a declared divergence, not an upstream match); the withdrawal
+  store-order difference verified observably equivalent and left as contracted (D20, boundary 14,
+  T91).
+
+### Tests
+
+- T89-T93 (UpstreamDriftParityTest) pin the verified differences and equivalences of the review
+  batch on the Java side; the mainline probes themselves live outside the repository (review
+  notes).
+
 ## [0.4.2] - 2026-08-28
 
 ### Fixed
