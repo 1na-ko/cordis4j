@@ -1,6 +1,6 @@
 # Cordis4j Design Contract
 
-> Status: **v2.12, frozen** (for v0.4.1+). Any semantic change must append a new decision-log entry
+> Status: **v2.13, frozen** (for v0.4.1+). Any semantic change must append a new decision-log entry
 > (Section 2) and bump this version. v2.6 carried D25/D26; v2.7 belonged to D27 (HMR class
 > isolation, shipped in 0.3.0) and corrected the header lag; v2.8 adds D28 (the cordis
 > configuration-format bridge in cordis4j-loader, shipped in 0.4.0) with boundary semantics 35;
@@ -10,7 +10,12 @@
 > v2.11 adds D29 (the dispose-race orphan takeover found by the 0.4.1 QA review) with boundary
 > semantics 45. v2.12 clarifies the boundary 18/D15 spawn-cancellation wording
 > (interrupt-without-join, D30) and declares the Algorithm 6 nested-declaration mediation depth as
-> a deviation.
+> a deviation. v2.13 is the semantic-drift review batch, verified by runtime probes against the
+> cordis mainline 4.0.0-rc.9 @ b912d39: deviations 11-14 (activation timing, unload execution
+> model, failed-fiber recovery, event visibility) are declared, D3's rationale is corrected (the
+> bubbling model is a declared divergence, not an upstream match), and the withdrawal store-order
+> difference (upstream deletes the store entry first and resolves dependents through per-fiber
+> snapshots) is verified observably equivalent and stays as contracted (D20 / boundary 14).
 > Semantic baseline: the Cordis paper, *A Programming Paradigm for Spatiotemporal Composability*,
 > Sections 3-5 (section numbers below refer to that paper); reference implementations:
 > [cordiverse/cordis](https://github.com/cordiverse/cordis) and `@deepseek-ai/cordis`@4.0.1 (MIT).
@@ -63,7 +68,7 @@ contract.
 |---|---|---|---|
 | D1 | Service access | Explicit ctx.get(ServiceKey) / find returning Optional; annotation injection in P2 | Paper Section 6.4: annotations + compile-time generation are the sanctioned replacement for proxy mediation; P1 stays zero-dependency |
 | D2 | Plugin shape | @FunctionalInterface Plugin.apply(Context) -> Disposable; registrations during apply belong to an implicit effect scope | Mirrors the paper's fiber.apply; Java idiom |
-| D3 | Event model | Fully synchronous dispatch; emit runs the current context first, then walks the parent chain (child-to-root); a throwing listener propagates and the remaining listeners are skipped (documented) | Matches upstream; virtual-thread asynchrony in P2 |
+| D3 | Event model | Fully synchronous dispatch; emit runs the current context first, then walks the parent chain (child-to-root); a throwing listener propagates and the remaining listeners are skipped (documented) | A deliberate divergence, not an upstream match (corrected in v2.13): upstream rc.9 keeps one shared bus where a plain emit reaches every registration regardless of the registering context (isolation is opt-in through thisArg `[Context.filter]`); the per-context bubbling form follows the Section 3.3.1 space direction (child sees parent, never the reverse) and is declared as deviation 14; virtual-thread asynchrony in P2 |
 | D4 | Naming | groupId/package io.cordis4j; artifactId cordis4j-core; JPMS module io.cordis4j.core | Verified conflict-free; frozen |
 | D5 | Service keys | ServiceKey<T> = (Class<T> type, String qualifier); the qualifier is a one-dimensional projection of the realm; get(Foo.class) is the default-qualifier sugar | Reserves the extension point for paper Section 6.2 multi-provider services and loader realms, avoiding rework. Consequently a realm label and a qualifier of the same text are the same store key - an isolated declaration is satisfied by an ambient binding carrying the same qualifier text (boundary 36) |
 | D6 | Exception taxonomy | CordisException (base) -> NoSuchServiceException (key + lookup path) / InactiveAccessException (declaration checks, D13) / DisposeException (suppressed aggregation) / SupplyConflictException / CyclicDependencyException / DivertedException | Aligns with the two access failures of upstream Algorithm 6 and the remaining guard signals; T7 fixes the aggregation semantics |
@@ -293,6 +298,32 @@ by the module).
    declarations only (ContextImpl), so a nested declarative fiber reading a key declared by an
    enclosing fiber is rejected with InactiveAccessException where the paper would authorize it -
    a conservative deviation, declared here rather than implemented as a chain walk (T88).
+11. Activation timing: upstream defers every fiber body behind at least one microtask (`_reload`
+   awaits `Promise.resolve()` before executing the runner), so `ctx.plugin()` returns before the
+   body has run; Cordis4j's synchronous core activates a satisfied `plugin()`/`inject()` before
+   returning, and the returned handle refers to a landed fiber. The deferral guards JS stack
+   re-entrancy across the event loop; the synchronous JVM call stack has no such window, and the
+   async landing remains available through pluginAsync (D15). Migration note: code relying on
+   "registered but not yet running" to win a registration race behaves differently (T89).
+12. Unload execution model: upstream reverts a fiber's top-level effect groups concurrently
+   (`Promise.all` over the disposables in `_unload`; only within a single effect group is
+   disposal strictly LIFO-serial); Cordis4j reverts the whole effect domain fully serially in
+   LIFO order across all groups. Serial keeps teardown deterministic, keeps the DisposeException
+   aggregation (T7) well-defined, and never interleaves user teardown code with the D19 lock
+   ordering. Plugins relying on concurrent cross-group unload (for example, disposers awaiting
+   each other) would deadlock here - such reliance is timing-fragile even upstream (T90).
+13. Failed-fiber recovery: upstream `fiber.update()` clears `_error` and restarts the fiber (the
+   spec pins "update recovers a failed fiber"); Cordis4j exposes no recovery API - a failed
+   activation is terminal (D14, boundary 13), and the equivalent of an update-recover is
+   disposing the declaration and re-declaring it (a fresh fiber). Upstream's dependency-refresh
+   path equally never revives a failed fiber (both spec-pinned), and the Loader's id-keyed
+   reload covers the configuration-update scenario upstream models with update() (T92).
+14. Event visibility: upstream keeps a single shared event bus - a plain `ctx.emit` reaches
+   listeners registered on any context of the app (including siblings), with isolation opt-in
+   through a thisArg carrying `[Context.filter]`; Cordis4j gives every context its own bus and
+   emits bubble child-to-root only - the root never sees a child's registration and sibling
+   subtrees are invisible to each other (D3). Cross-subtree communication must register on a
+   common ancestor (T93).
 
 ---
 
