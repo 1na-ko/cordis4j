@@ -45,17 +45,17 @@
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <maven.compiler.release>21</maven.compiler.release>
     <junit.version>5.14.4</junit.version>
-    <langchain4j.version>1.19.0</langchain4j.version>
-    <jackson.version>2.22.2</jackson.version>
-    <snakeyaml.version>2.6</snakeyaml.version>
+    <langchain4j.version>1.20.2</langchain4j.version>
+    <jackson.version>2.22.3</jackson.version>
+    <snakeyaml.version>2.7</snakeyaml.version>
     <spring.version>7.0.9</spring.version>
-    <maven.compiler.version>3.15.0</maven.compiler.version>
-    <maven.surefire.version>3.5.6</maven.surefire.version>
+    <maven.compiler.version>3.16.0</maven.compiler.version>
+    <maven.surefire.version>3.6.0</maven.surefire.version>
     <maven.enforcer.version>3.6.3</maven.enforcer.version>
     <maven.javadoc.version>3.12.0</maven.javadoc.version>
     <maven.dependency.version>3.11.0</maven.dependency.version>
     <maven.source.version>3.4.0</maven.source.version>
-    <maven.exec.version>3.6.3</maven.exec.version>
+    <maven.exec.version>3.6.4</maven.exec.version>
     <jacoco.version>0.8.15</jacoco.version>
     <spotless.version>2.46.1</spotless.version>
   </properties>
