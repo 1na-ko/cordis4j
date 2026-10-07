@@ -18,9 +18,10 @@ import org.junit.jupiter.api.Test;
 /**
  * T65/T66: a registration whose ambient tracking loses the race against a concurrent dispose of its
  * context recovers in place instead of leaking - the landed fiber retires and unloads (bindings
- * withdrawn, spawned tasks cancelled and joined), and the caller receives a CordisException rather
- * than the scope's raw IllegalStateException. This generalizes boundary 34's interrupted-caller
- * takeover to every untracked registration (D29, boundary 45; the 0.4.1 QA review's F1/F2).
+ * withdrawn, spawned tasks cancelled; the landing is awaited by dispose's executor close, D30), and
+ * the caller receives a CordisException rather than the scope's raw IllegalStateException. This
+ * extends boundary 34's interrupted-caller takeover to the lifecycle-bearing registrations (D29,
+ * boundary 45; the 0.4.1 QA review's F1/F2).
  */
 class PluginDisposeRaceTest {
 
