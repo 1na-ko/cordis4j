@@ -49,7 +49,7 @@
 
 | 上游 | Cordis4j | 状态 |
 |---|---|---|
-| `TimerService`：`setTimeout`/`setInterval`（受跟踪，dispose 时撤销）、`timeout`/`interval` promise 形态 | `cordis4j-timer`：`Timers.setTimeout`/`setInterval`（spawn 任务，域卸载时撤销）、`Timers.timeout` future 形态（T30） | 已对齐 |
+| `TimerService`：`setTimeout`/`setInterval`（受跟踪，dispose 时撤销）、`timeout`/`interval` promise 形态、`throttle(callback, delay, noTrailing)`/`debounce` 调用包装（`WithDispose`） | `cordis4j-timer`：`Timers.setTimeout`/`setInterval`（spawn 任务，域卸载时撤销）、`Timers.timeout` future 形态（T30）、`Timers.throttle`/`debounce` 返回 `Trigger` 句柄（`run()` 重触发、`dispose()` 取消，T94-T97） | Java 形态已对齐：调用包装成为 `Trigger`（Runnable + Disposable），参数维度随零参 Runnable 省去。一处有意差异：dispose 后的触发一律 no-op——上游 throttle 在窗口过期后仍可能立即执行 |
 
 ### 2.5 @cordisjs/logger-console
 
