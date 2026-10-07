@@ -1,6 +1,6 @@
 # Cordis4j Design Contract
 
-> Status: **v2.13, frozen** (for v0.4.1+). Any semantic change must append a new decision-log entry
+> Status: **v2.14, frozen** (for v0.4.1+). Any semantic change must append a new decision-log entry
 > (Section 2) and bump this version. v2.6 carried D25/D26; v2.7 belonged to D27 (HMR class
 > isolation, shipped in 0.3.0) and corrected the header lag; v2.8 adds D28 (the cordis
 > configuration-format bridge in cordis4j-loader, shipped in 0.4.0) with boundary semantics 35;
@@ -16,6 +16,9 @@
 > bubbling model is a declared divergence, not an upstream match), and the withdrawal store-order
 > difference (upstream deletes the store entry first and resolves dependents through per-fiber
 > snapshots) is verified observably equivalent and stays as contracted (D20 / boundary 14).
+> v2.14 adds D31 (the two Algorithm 6 access-failure kinds are discriminated - "undeclared
+> access" vs "inactive access"; a declared-but-unresolvable read inside a declarative fiber now
+> raises the inactive kind instead of NoSuchServiceException) with boundary semantics 46.
 > Semantic baseline: the Cordis paper, *A Programming Paradigm for Spatiotemporal Composability*,
 > Sections 3-5 (section numbers below refer to that paper); reference implementations:
 > [cordiverse/cordis](https://github.com/cordiverse/cordis) and `@deepseek-ai/cordis`@4.0.1 (MIT).
@@ -96,6 +99,7 @@ contract.
 | D28 | Format adaptation boundary | cordis4j-loader bridges upstream's cordis configuration **format** - the entry-tree shape of `@cordisjs/plugin-loader` and the patch semantics of `plugin-include` - onto the core's D26 composition, and nothing beyond: reading is faithful (`cordis.yml`/`.yaml`/`.json` roots are lists of entry rows; the delayed `!!js` tag parses to an opaque JsExpr the host interpolates through a pluggable ExpressionEvaluator; unknown fields survive verbatim; a missing id is generated at read time - upstream's ensureId, without the write-back); patch layers keep upstream semantics (insert appends to the root or into a located group; overrides locate by id anywhere in the tree; a name mismatch skips the patch; config replaces wholesale; a later patch in a layer sees earlier inserts); the two dsh manifests (`dsh.bundle.patch`, the ordered `dsh.profile.bundles`) parse without any package-manager integration; the mapping wraps an entry's isolation table as nested Isolate realms (`true` -> `'#'+entryId` local, a label -> `'@'+label` shared, the first table service outermost), drops disabled entries from the mount while keeping their metadata, and hands config/inject/intercept to the host through EntryMeta; component and service-name resolution is an interface (ComponentResolver) - no JS engine, no npm/registry client, no config write-back | The format is the stable contract of the cordis ecosystem; the runtime decisions (what a name resolves to, how an expression evaluates) are host policy on the JVM - the module is a format bridge, not a runtime |
 | D29 | Dispose-race orphan takeover | A registration call whose ambient tracking loses the race against a concurrent dispose of its enclosing scope - the registrar's `track` raises `IllegalStateException: Effect scope is already disposed` - recovers the artifact in place instead of leaking: a landed `plugin`/`pluginAsync` fiber is retired and unloaded synchronously by the losing caller (bindings withdrawn, spawned tasks cancelled - their landing awaited by the executor close), an `inject` fiber is retired (its INACTIVE teardown unregisters it), and a spawned task is cancelled without a self-join (dispose's executor close waits out the interrupted landing); the caller then receives `CordisException` wrapping the scope's ISE. This extends boundary 34's interrupted-caller takeover to the four lifecycle-bearing registration APIs (`plugin`, `pluginAsync`, `inject`, `spawn`); a handle that tracked before the scope flipped still reverts through the ambient recovery, and dispose/executor-close semantics are unchanged. State-only tracks (`provide`/`intercept`, event listeners, child-context tracking in `fork`/`isolate`/`withBaseUrl`) are deliberately not taken over: their race artifacts live only inside the disposed subtree, are unreachable through the API (`checkAlive` guards every observer), and merely delay reclamation of already-dead objects | F1/F2 of the 0.4.1 QA review: an experimentally reproduced leak where the post-activation `track` of `pluginAsync` raced a context dispose, leaving a permanently ACTIVE fiber whose uncancellable spawned task wedged `root.dispose()` (T65/T66) |
 | D30 | Spawn cancellation semantics | A spawned task's handle cancels its FutureTask (interrupt) and then reads the result; a cancelled task's get() reports CancellationException immediately instead of joining the runner, so a handle dispose interrupts without waiting for the landing - the interrupted landing is awaited by the context dispose's executor close. Per-handle join is deliberately not implemented: waiting for an arbitrary user task to notice its interruption would wedge unloading; the guard protocol (boundary 17) is the cooperative exit. This corrects the boundary 18/D15 wording that claimed "interrupts and joins" - implementation, JDK semantics (T78), and docs now agree | Post-merge review N1: the docs promised a join the JDK's FutureTask cannot deliver after cancellation; T78 pins the real semantics |
+| D31 | Access-failure discrimination | InactiveAccessException discriminates the paper's two Algorithm 6 failure kinds by detail: "undeclared access" (UNDECLARED_ACCESS - the key is outside the fiber's declarations and supplies) and "inactive access" (INACTIVE_ACCESS - declared or self-supplied, but not committed in the accessed view, e.g. read through a sibling context). A declared-but-unresolvable lookup inside a declarative fiber raises the inactive kind instead of NoSuchServiceException; get() and find() behave alike. Outside a declarative fiber the store semantics of deviation 2 stand | Algorithm 6 distinguishes the two failures; F5 of the QA review found the single "undeclared access" message collapsed them and left the class's inactive-kind constructor unreachable (T98/T99) |
 
 ---
 
@@ -274,7 +278,10 @@ by the module).
 2. Lookup failure: upstream ctx.get(key) (a store lookup) never fails - what fails is proxy
    property access (INACTIVE_ACCESS / UNDECLARED_ACCESS); Cordis4j get() throws
    NoSuchServiceException, find() returns Optional, and InactiveAccessException carries the
-   declaration checks of Algorithm 6 (D13).
+   declaration checks of Algorithm 6 (D13). The two proxy failure kinds stay discriminated
+   inside InactiveAccessException (D31): an undeclared key raises "undeclared access", a
+   declared key the accessed view does not resolve raises "inactive access" (the paper's
+   INACTIVE_ACCESS) instead of NoSuchServiceException.
 3. Lifecycle: the synchronous core drives a four-state fiber machine (INACTIVE / LOADING /
    ACTIVE / UNLOADING, paper Section 4.2); inertia appears as unload-waits-for-landing, including
    the chained unload of still-LOADING dependents (D20).
@@ -479,6 +486,10 @@ by the module).
     takeover covers the lifecycle-bearing registrations (`plugin`/`pluginAsync`/`inject`/`spawn`),
     so no fiber or spawned task ever outlives its scope unowned; state-only tracks are exempt
     (see D29) (T65/T66).
+46. Access-failure kinds (D31): inside a declarative fiber an undeclared key raises
+    InactiveAccessException "undeclared access" and a declared key the accessed view does not
+    resolve raises "inactive access" - get() and find() alike; outside a declarative fiber a
+    missing binding keeps the store semantics of deviation 2 (T98/T99).
 
 ---
 
