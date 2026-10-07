@@ -51,7 +51,7 @@
 
 | Upstream | Cordis4j | Status |
 |---|---|---|
-| `TimerService`: `setTimeout`/`setInterval` (tracked, reverted on dispose), `timeout`/`interval` promise forms | `cordis4j-timer`: `Timers.setTimeout`/`setInterval` (spawned tasks, reverted on domain unload), `Timers.timeout` future form (T30) | Aligned |
+| `TimerService`: `setTimeout`/`setInterval` (tracked, reverted on dispose), `timeout`/`interval` promise forms, `throttle(callback, delay, noTrailing)`/`debounce` call wrappers (`WithDispose`) | `cordis4j-timer`: `Timers.setTimeout`/`setInterval` (spawned tasks, reverted on domain unload), `Timers.timeout` future form (T30), `Timers.throttle`/`debounce` returning `Trigger` handles (`run()` re-triggers, `dispose()` cancels, T94-T97) | Aligned in the Java form: the call wrapper becomes a `Trigger` (Runnable + Disposable), the arguments dimension drops with zero-argument Runnable. One intentional difference: after dispose every trigger is a no-op here - upstream's throttle may still execute immediately once its window has elapsed |
 
 ### 2.5 @cordisjs/logger-console
 

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Timer: `Timers.throttle`/`Timers.debounce` (F4) - the upstream `@cordisjs/timer` call wrappers as
+  `Trigger` handles (`run()` re-triggers, `dispose()` cancels): throttle leads immediately and
+  coalesces in-window triggers into one trailing execution at the window end (with the `noTrailing`
+  option), debounce fires once after the quiet window (T94-T97). One intentional difference from
+  upstream is recorded in the parity table: after dispose every trigger is a no-op here.
+
 ### Documentation
 
 - Design contract v2.13 - the semantic-drift review batch, verified against the cordis mainline
@@ -23,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - T89-T93 (UpstreamDriftParityTest) pin the verified differences and equivalences of the review
   batch on the Java side; the mainline probes themselves live outside the repository (review
   notes).
+- T94-T97 (ThrottleDebounceTest) pin the throttle/debounce policies and the cancellation
+  discipline of the F4 call wrappers.
 
 ## [0.4.2] - 2026-08-28
 
