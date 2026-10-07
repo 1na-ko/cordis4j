@@ -16,11 +16,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * T78-T81: the failure half of task spawning: a task parked mid-flight is cancelled and joined on
- * unload without the dispose throwing, a task that already failed only warns (never breaks the
- * unloader), an interrupted unloader keeps its interruption flag, and a spawn issued from a domain
- * that died under the caller takes the task over (cancelled in place, reported as CordisException)
- * instead of tracking it into the dead scope (boundary 45).
+ * T78-T81: the failure half of task spawning: a task parked mid-flight is cancelled on unload (the
+ * handle interrupts without joining - the landing is observed by the task's own latch, D30) without
+ * the dispose throwing, a task that already failed only warns (never breaks the unloader), an
+ * interrupted unloader keeps its interruption flag, and a spawn issued from a domain that died
+ * under the caller takes the task over (cancelled in place, reported as CordisException) instead of
+ * tracking it into the dead scope (boundary 45).
  *
  * <p>Determinism: a parked callable keeps the FutureTask in state NEW, so {@code cancel(true)}
  * deterministically wins and {@code get()} sees CancellationException; joining the task's own

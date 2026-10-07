@@ -2,7 +2,8 @@
 
 > Canonical language: **English**. Chinese translation: docs/zh/upstream-parity.zh-CN.md.
 > Status: baseline snapshot of cordiverse/cordis@main (August 2026 @ 8cc9e33, 9 packages,
-> core 4.0.0-rc.8) against Cordis4j.
+> core 4.0.0-rc.8) against Cordis4j, re-verified at 4.0.0-rc.9 @ b912d39 by the v2.13
+> semantic-drift review (contract deviations 11-14).
 > This document anchors the goal: Cordis4j should be as capable as the Cordis repository, while
 > keeping the JVM's advantages. It is a living baseline, updated as either side evolves; the
 > paper remains the semantic anchor where the upstream implementation and the paper diverge.

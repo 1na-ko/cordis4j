@@ -1,9 +1,10 @@
 # 上游对齐基准：以 cordiverse/cordis 为锚
 
 > 本文档是英文规范本 [../design/upstream-parity.md](../design/upstream-parity.md) 的中文译本
-> （规范本语言：英文）。如有歧义，以英文版为准。最近同步：2026-08-28（rc.8 锚点、dsh 来源注记）。
+> （规范本语言：英文）。如有歧义，以英文版为准。最近同步：2026-10-08（rc.9 复核注记、
+> throttle/debounce 行、dsh 来源注记）。
 > 状态：cordiverse/cordis@main（2026 年 8 月 @ 8cc9e33，9 个 package，core 4.0.0-rc.8）对
-> Cordis4j 的基线快照。
+> Cordis4j 的基线快照，v2.13 语义漂移复核批于 4.0.0-rc.9 @ b912d39 重新核验（契约偏差 11-14）。
 > 本基准锚定目标：Cordis4j 应具备与 Cordis 仓库同等的能力，同时保持 JVM 优势。它是随双方演进
 > 更新的活基线；上游实现与论文分歧时，论文仍是语义锚。
 

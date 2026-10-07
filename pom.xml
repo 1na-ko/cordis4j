@@ -11,7 +11,7 @@
 
   <name>Cordis4j Parent</name>
   <description>Cordis4j: the spatiotemporal composability meta-framework for the JVM.</description>
-  <url>https://github.com/cordis4j/cordis4j</url>
+  <url>https://github.com/1na-ko/cordis4j</url>
 
   <licenses>
     <license>
@@ -22,9 +22,9 @@
   </licenses>
 
   <scm>
-    <connection>scm:git:https://github.com/cordis4j/cordis4j.git</connection>
-    <developerConnection>scm:git:ssh://git@github.com/cordis4j/cordis4j.git</developerConnection>
-    <url>https://github.com/cordis4j/cordis4j</url>
+    <connection>scm:git:https://github.com/1na-ko/cordis4j.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/1na-ko/cordis4j.git</developerConnection>
+    <url>https://github.com/1na-ko/cordis4j</url>
   </scm>
 
   <modules>
