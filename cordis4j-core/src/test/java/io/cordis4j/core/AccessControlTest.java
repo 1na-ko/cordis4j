@@ -5,6 +5,8 @@
 package io.cordis4j.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -124,5 +126,78 @@ class AccessControlTest {
           return Disposables.none();
         });
     assertEquals(List.of("nested:blocked"), trace);
+  }
+
+  @Test
+  @DisplayName("T98 未声明访问以 undeclared access 报告（D31 两类失败的稳定判别串，get/find 一致）")
+  void undeclaredAccessReportsTheUndeclaredKind() {
+    Context ctx = Contexts.create();
+    ctx.provide(new Hidden());
+    ctx.provide(new Vault("s3cret"));
+    List<String> trace = new ArrayList<>();
+
+    ctx.inject(
+        Vault.class,
+        (c, vault) -> {
+          try {
+            c.get(Hidden.class);
+            trace.add("get:allowed");
+          } catch (InactiveAccessException rejected) {
+            trace.add("get:" + kind(rejected));
+          }
+          try {
+            c.find(Hidden.class);
+            trace.add("find:allowed");
+          } catch (InactiveAccessException rejected) {
+            trace.add("find:" + kind(rejected));
+          }
+          return Disposables.none();
+        });
+    assertEquals(List.of("get:undeclared", "find:undeclared"), trace);
+  }
+
+  @Test
+  @DisplayName("T99 已声明未提交的读取以 inactive access 报告（D31；非声明式读取仍走存储语义）")
+  void declaredButUnresolvableReportsTheInactiveKind() {
+    Context root = Contexts.create();
+    Context providerView = root.fork();
+    Context readerView = root.fork();
+    providerView.provide(new Vault("s3cret"));
+    List<String> trace = new ArrayList<>();
+
+    providerView.inject(
+        Vault.class,
+        (c, vault) -> {
+          // The fiber declares Vault, but the reader view never carried the binding: Algorithm 6
+          // would raise INACTIVE_ACCESS ("declared but uncommitted"), not a plain store miss.
+          try {
+            readerView.get(Vault.class);
+            trace.add("get:allowed");
+          } catch (InactiveAccessException rejected) {
+            trace.add("get:" + kind(rejected));
+          }
+          try {
+            readerView.find(Vault.class);
+            trace.add("find:allowed");
+          } catch (InactiveAccessException rejected) {
+            trace.add("find:" + kind(rejected));
+          }
+          return Disposables.none();
+        });
+    assertEquals(List.of("get:inactive", "find:inactive"), trace);
+
+    // Outside a declarative fiber the same miss keeps deviation 2's store semantics.
+    assertThrows(NoSuchServiceException.class, () -> readerView.get(Vault.class));
+    assertTrue(readerView.find(Vault.class).isEmpty(), "非声明式 find 仍返回 empty");
+    root.dispose();
+  }
+
+  private static String kind(InactiveAccessException failure) {
+    if (failure.getMessage().contains("undeclared access")) {
+      return "undeclared";
+    }
+    return failure.getMessage().contains("inactive access")
+        ? "inactive"
+        : "other:" + failure.getMessage();
   }
 }

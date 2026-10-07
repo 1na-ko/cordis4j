@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   option), debounce fires once after the quiet window (T94-T97). One intentional difference from
   upstream is recorded in the parity table: after dispose every trigger is a no-op here.
 
+### Changed
+
+- Core: the two Algorithm 6 access-failure kinds are now discriminated (F5, contract v2.14, D31):
+  an undeclared key raises `InactiveAccessException` "undeclared access" while a key a declarative
+  fiber declares (or self-supplies) but the accessed view does not resolve raises the "inactive
+  access" kind instead of `NoSuchServiceException` (the paper's INACTIVE_ACCESS); non-declarative
+  lookups keep the store semantics of deviation 2 (T98, T99).
+
 ### Documentation
 
 - Design contract v2.13 - the semantic-drift review batch, verified against the cordis mainline
@@ -33,6 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   notes).
 - T94-T97 (ThrottleDebounceTest) pin the throttle/debounce policies and the cancellation
   discipline of the F4 call wrappers.
+- T98-T99 (AccessControlTest) pin the two access-failure kinds of D31 and the unchanged store
+  semantics outside declarative components.
 
 ## [0.4.2] - 2026-08-28
 
