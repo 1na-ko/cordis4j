@@ -109,6 +109,21 @@ public final class ContextImpl implements Context {
     }
   }
 
+  /**
+   * The INACTIVE_ACCESS half of paper Algorithm 6 (D31): inside a declarative fiber a key {@link
+   * #checkAccess} has already accepted - declared or self-supplied - that does not resolve through
+   * the accessed view is "declared but uncommitted", the inactive kind, not a plain store miss. The
+   * view matters: the same key may resolve through the declaring context and miss through a sibling
+   * one. Outside a declarative fiber the store semantics of deviation 2 stand
+   * (NoSuchServiceException / Optional.empty).
+   */
+  private void checkResolved(ServiceKey<?> key) {
+    Fiber current = Domains.fiber();
+    if (current != null && current.declarative()) {
+      throw new InactiveAccessException(key, "inactive access");
+    }
+  }
+
   @Override
   public <T> T get(ServiceKey<T> key) {
     checkAlive();
@@ -116,6 +131,7 @@ public final class ContextImpl implements Context {
     checkAccess(key);
     T value = registry.get(key);
     if (value == null) {
+      checkResolved(key);
       throw new NoSuchServiceException(key, describePath());
     }
     return value;
@@ -131,7 +147,11 @@ public final class ContextImpl implements Context {
     checkAlive();
     Objects.requireNonNull(key, "key");
     checkAccess(key);
-    return Optional.ofNullable(registry.get(key));
+    T value = registry.get(key);
+    if (value == null) {
+      checkResolved(key);
+    }
+    return Optional.ofNullable(value);
   }
 
   @Override
